@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -76,8 +77,8 @@ const gameState = {
   roomCode: 'MAFIA30',
   phase: 'LOBBY',
   round: 1,
-  players: [], // { socketId, id, number, name, role, isAlive, deathReason }
-  roleDeckConfig: getAutoRoleDeck(10),
+  players: [], // { token, socketId, id, number, name, role, isAlive, deathReason }
+  roleDeckConfig: getAutoRoleDeck(5),
   timerSeconds: 0,
   timerInterval: null,
   nominationVotes: {},
@@ -92,9 +93,32 @@ const gameState = {
   winner: null
 };
 
+// 유령/연결 끊긴 소켓 완전 정리 함수 (핵심 버그 방지)
+function cleanupDeadSockets() {
+  if (gameState.phase !== 'LOBBY') return;
+  const activeSockets = io.sockets.sockets; // Map<socketId, Socket>
+  const beforeCount = gameState.players.length;
+
+  gameState.players = gameState.players.filter(p => {
+    const s = activeSockets.get(p.socketId);
+    return s && s.connected;
+  });
+
+  // 번호 1부터 다시 정렬
+  gameState.players.forEach((p, idx) => {
+    p.id = idx + 1;
+    p.number = idx + 1;
+  });
+
+  if (beforeCount !== gameState.players.length) {
+    console.log(`[접속자 정리] ${beforeCount}명 -> 실제 연결 ${gameState.players.length}명`);
+  }
+}
+
 function broadcastState() {
+  cleanupDeadSockets();
   const currentCount = gameState.players.length;
-  gameState.roleDeckConfig = getAutoRoleDeck(currentCount >= 5 ? currentCount : 10);
+  gameState.roleDeckConfig = getAutoRoleDeck(currentCount >= 5 ? currentCount : 5);
 
   io.emit('state:update', {
     phase: gameState.phase,
@@ -147,7 +171,6 @@ function checkVictory() {
   return null;
 }
 
-// 개별 플레이어에게 비밀 직업 정보 발송
 function sendSecretRolesToPlayers() {
   gameState.players.forEach(p => {
     if (!p.socketId) return;
@@ -173,7 +196,6 @@ function sendSecretRolesToPlayers() {
 io.on('connection', (socket) => {
   console.log(`클라이언트 접속: ${socket.id}`);
 
-  // 1. 방 초기화 및 현재 상태 전송
   socket.emit('init', {
     phase: gameState.phase,
     round: gameState.round,
@@ -181,16 +203,20 @@ io.on('connection', (socket) => {
   });
   broadcastState();
 
-  // 2. 플레이어 참가 (닉네임 등록)
-  socket.on('player:join', ({ name }) => {
+  // 플레이어 입장 또는 세션 재연결
+  socket.on('player:join', ({ name, token }) => {
+    cleanupDeadSockets();
     let cleanName = (name || '').trim();
     if (!cleanName) cleanName = `참가자 ${gameState.players.length + 1}`;
 
-    // 기존 소켓 재접속 확인
-    let existingPlayer = gameState.players.find(p => p.socketId === socket.id || p.name === cleanName);
+    // 1. 기존 토큰 또는 소켓 또는 닉네임으로 기존 참가자 찾기
+    let existingPlayer = gameState.players.find(p => (token && p.token === token) || p.socketId === socket.id || p.name === cleanName);
+
     if (existingPlayer) {
       existingPlayer.socketId = socket.id;
+      if (token) existingPlayer.token = token;
       socket.emit('player:joined_success', {
+        token: existingPlayer.token,
         id: existingPlayer.id,
         number: existingPlayer.number,
         name: existingPlayer.name
@@ -212,8 +238,10 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const assignedToken = token || crypto.randomUUID();
     const assignedNumber = gameState.players.length + 1;
     const newPlayer = {
+      token: assignedToken,
       socketId: socket.id,
       id: assignedNumber,
       number: assignedNumber,
@@ -226,28 +254,33 @@ io.on('connection', (socket) => {
 
     gameState.players.push(newPlayer);
     socket.emit('player:joined_success', {
+      token: newPlayer.token,
       id: newPlayer.id,
       number: newPlayer.number,
       name: newPlayer.name
     });
 
-    console.log(`플레이어 등록: [${newPlayer.number}번] ${newPlayer.name} (현재 총 ${gameState.players.length}명)`);
+    console.log(`플레이어 등록 완료: [${newPlayer.number}번] ${newPlayer.name} (현재 총 ${gameState.players.length}명)`);
     broadcastState();
   });
 
-  // 3. 호스트: 게임 시작 (정확한 인원수 자동 밸런스 적용)
+  // 호스트: 게임 시작 (시작 직전 실시간 접속자 전수 검증)
   socket.on('host:start_game', () => {
     if (gameState.phase !== 'LOBBY') return;
+    
+    // 시작 전 유령/끊긴 소켓 즉시 강제 정리
+    cleanupDeadSockets();
+
     const total = gameState.players.length;
     if (total < 5) {
-      socket.emit('error_message', '원활한 진행을 위해 최소 5명 이상 접속해야 합니다.');
+      socket.emit('error_message', `현재 실제 접속 인원이 ${total}명입니다. 최소 5명 이상 접속해야 시작할 수 있습니다.`);
       return;
     }
 
     gameState.roleDeckConfig = getAutoRoleDeck(total);
     const cfg = gameState.roleDeckConfig;
 
-    // 직업 덱 생성
+    // 정확한 직업 덱 생성
     const deck = [];
     if (cfg.mafia > 0) {
       deck.push('MAFIA_BOSS'); // 마피아 첫 번째는 보스
@@ -270,7 +303,7 @@ io.on('connection', (socket) => {
       p.deathReason = null;
     });
 
-    console.log(`게임 시작 (${total}인 배분): 마피아 ${cfg.mafia}, 경찰 ${cfg.police}, 의사 ${cfg.doctor}, 탐정 ${cfg.detective}, 시민 ${cfg.citizen}`);
+    console.log(`[게임 시작] 총 ${total}명 배분: 마피아 ${cfg.mafia}명(보스 1 포함), 경찰 ${cfg.police}명, 의사 ${cfg.doctor}명, 탐정 ${cfg.detective}명, 시민 ${cfg.citizen}명`);
 
     sendSecretRolesToPlayers();
 
@@ -283,7 +316,6 @@ io.on('connection', (socket) => {
     });
   });
 
-  // 낮 토론 시작
   function startDayDiscuss() {
     gameState.phase = 'DAY_DISCUSS';
     broadcastState();
@@ -292,7 +324,6 @@ io.on('connection', (socket) => {
     });
   }
 
-  // 후보 지목 시작
   function startNomination() {
     gameState.phase = 'DAY_NOMINATE';
     gameState.nominationVotes = {};
@@ -302,7 +333,6 @@ io.on('connection', (socket) => {
     });
   }
 
-  // 플레이어: 후보 지목 투표
   socket.on('player:nominate', ({ targetId }) => {
     const voter = gameState.players.find(p => p.socketId === socket.id);
     if (!voter || !voter.isAlive || gameState.phase !== 'DAY_NOMINATE') return;
@@ -340,7 +370,6 @@ io.on('connection', (socket) => {
     });
   }
 
-  // 플레이어: 유죄/무죄 투표
   socket.on('player:verdict', ({ vote }) => {
     const voter = gameState.players.find(p => p.socketId === socket.id);
     if (!voter || !voter.isAlive || gameState.phase !== 'DAY_VERDICT') return;
@@ -389,7 +418,6 @@ io.on('connection', (socket) => {
     });
   }
 
-  // 플레이어: 밤 행동 제출
   socket.on('player:night_action', ({ action, targetId }) => {
     const player = gameState.players.find(p => p.socketId === socket.id);
     if (!player || !player.isAlive || gameState.phase !== 'NIGHT') return;
@@ -451,7 +479,6 @@ io.on('connection', (socket) => {
     }
   }
 
-  // 호스트: 수동 단계 진행
   socket.on('host:next_phase', () => {
     clearInterval(gameState.timerInterval);
     if (gameState.phase === 'FIRST_NIGHT') startDayDiscuss();
@@ -463,13 +490,16 @@ io.on('connection', (socket) => {
     else if (gameState.phase === 'MORNING_REPORT') startDayDiscuss();
   });
 
-  // 호스트: 다음 라운드 준비 (접속된 참가자는 유지하고 직업/투표만 초기화)
+  // 호스트: 다음 판 준비 (현재 접속 중인 플레이어만 남기고 완전 초기화)
   socket.on('host:reset_game', () => {
     clearInterval(gameState.timerInterval);
     gameState.phase = 'LOBBY';
     gameState.round = 1;
     
-    // 현재 접속 중인 플레이어들의 상태만 리셋 (재접속 필요 없음!)
+    // 끊긴 소켓 완전 정리
+    cleanupDeadSockets();
+
+    // 현재 실제 연결 중인 플레이어들만 초기화
     gameState.players.forEach(p => {
       p.role = null;
       p.isAlive = true;
@@ -484,16 +514,37 @@ io.on('connection', (socket) => {
     gameState.lastNightReport = null;
     gameState.winner = null;
 
-    // 현재 인원수에 맞춰 정확하게 직업 밸런스 재계산
-    gameState.roleDeckConfig = getAutoRoleDeck(gameState.players.length || 10);
+    // 현재 남아있는 인원수에 맞춰 정확하게 재계산
+    gameState.roleDeckConfig = getAutoRoleDeck(gameState.players.length || 5);
 
-    // 모바일 클라이언트에게도 로비 초기화 신호 전송
     io.emit('player:reset_to_lobby');
     broadcastState();
-    console.log(`방 초기화 완료: 현재 접속 인원 ${gameState.players.length}명 유지`);
+    console.log(`[다음 판 준비 완료] 실제 접속 인원: ${gameState.players.length}명`);
   });
 
-  // 호스트: 완전 초기화 (참가자 전원 방 퇴장)
+  // 호스트: 특정 플레이어 강제 퇴장 (중복 접속 제거용)
+  socket.on('host:kick_player', ({ id }) => {
+    const idx = gameState.players.findIndex(p => p.id === parseInt(id));
+    if (idx !== -1) {
+      const kicked = gameState.players.splice(idx, 1)[0];
+      if (kicked && kicked.socketId) {
+        io.to(kicked.socketId).emit('player:force_kick');
+      }
+      gameState.players.forEach((p, i) => {
+        p.id = i + 1;
+        p.number = i + 1;
+      });
+      broadcastState();
+    }
+  });
+
+  // 호스트: 유령 접속자 수동 정리 버튼
+  socket.on('host:cleanup_dead', () => {
+    cleanupDeadSockets();
+    broadcastState();
+  });
+
+  // 호스트: 완전 초기화 (모든 플레이어 퇴장)
   socket.on('host:kick_all', () => {
     clearInterval(gameState.timerInterval);
     gameState.phase = 'LOBBY';
@@ -505,33 +556,23 @@ io.on('connection', (socket) => {
     gameState.nightActions = { mafiaVotes: {}, doctorTarget: null, policeTarget: null };
     gameState.lastNightReport = null;
     gameState.winner = null;
-    gameState.roleDeckConfig = getAutoRoleDeck(10);
+    gameState.roleDeckConfig = getAutoRoleDeck(5);
 
     io.emit('player:force_kick');
     broadcastState();
   });
 
-  // 연결 종료 시: 로비 상태면 명단에서 제거하여 정확한 인원수 유지
   socket.on('disconnect', () => {
     if (gameState.phase === 'LOBBY') {
-      const idx = gameState.players.findIndex(p => p.socketId === socket.id);
-      if (idx !== -1) {
-        const removed = gameState.players.splice(idx, 1)[0];
-        console.log(`로비 퇴장: [${removed.number}번] ${removed.name} (남은 인원: ${gameState.players.length}명)`);
-        // 번호 재정렬
-        gameState.players.forEach((p, i) => {
-          p.id = i + 1;
-          p.number = i + 1;
-        });
-        broadcastState();
-      }
+      cleanupDeadSockets();
+      broadcastState();
     }
   });
 });
 
 server.listen(PORT, () => {
   console.log(`=================================================`);
-  console.log(`🎲 5~35인 마피아 스마트 서버가 시작되었습니다!`);
+  console.log(`🎲 5~35인 마피아 스마트 서버 (중복 접속 자동 방지)`);
   console.log(`📺 빔프로젝터(호스트) 화면: http://localhost:${PORT}/host`);
   console.log(`📱 스마트폰 참가자 화면:     http://localhost:${PORT}`);
   console.log(`=================================================`);
