@@ -28,17 +28,20 @@
     </div>
 
     <!-- 호스트 제어 버튼들 -->
-    <div class="flex items-center gap-2.5">
-      <button id="audioToggleBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+    <div class="flex items-center gap-2">
+      <button id="cleanupBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 border border-slate-700 transition" title="새로고침 등으로 남은 유령 접속자를 즉시 정리합니다">
+        🧹 접속자 정리
+      </button>
+      <button id="audioToggleBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
         🔊 사운드 ON
       </button>
-      <button id="ttsToggleBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+      <button id="ttsToggleBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
         🗣️ 음성 안내 ON
       </button>
-      <button id="roundResetBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition" title="참가자는 유지하고 새 게임을 시작합니다">
+      <button id="roundResetBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition font-bold" title="현재 접속 인원을 유지하고 새 게임을 시작합니다">
         🔄 다음 게임 준비
       </button>
-      <button id="kickAllBtn" class="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-xs text-rose-300 border border-rose-800 transition" title="모든 참가자를 방에서 퇴장시키고 초기화합니다">
+      <button id="kickAllBtn" class="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-xs text-rose-300 border border-rose-800 transition" title="모든 참가자를 방에서 퇴장시키고 초기화합니다">
         ⚠️ 방 완전 초기화
       </button>
     </div>
@@ -83,13 +86,16 @@
     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-extrabold text-lg text-white flex items-center gap-3">
-          <span>👥 접속 플레이어 명단</span>
+          <span>👥 실제 접속자 명단</span>
           <span id="playerStats" class="text-xs font-bold px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">0명 접속 중</span>
         </h3>
-        <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
-          <input type="checkbox" id="revealCheck" class="rounded border-slate-700 bg-slate-950 text-rose-600">
-          <span>사회자용 직업 공개</span>
-        </label>
+        <div class="flex items-center gap-4 text-xs text-slate-300">
+          <span class="text-slate-500 text-[11px] hidden sm:inline">* 중복된 이름은 [X]를 눌러 정리할 수 있습니다.</span>
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" id="revealCheck" class="rounded border-slate-700 bg-slate-950 text-rose-600">
+            <span>사회자용 직업 공개</span>
+          </label>
+        </div>
       </div>
 
       <div id="rosterGrid" class="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-10 gap-2.5">
@@ -160,7 +166,7 @@
     function renderAll(state) {
       const totalP = state.players.length;
       document.getElementById('roundBadge').textContent = state.phase === 'LOBBY' ? '대기 중' : `라운드 ${state.round}`;
-      document.getElementById('playerStats').textContent = `생존 ${state.players.filter(p => p.isAlive).length}명 / 총 ${totalP}명 접속`;
+      document.getElementById('playerStats').textContent = `실제 접속 ${totalP}명 (생존 ${state.players.filter(p => p.isAlive).length}명)`;
 
       const stage = document.getElementById('stageArea');
       const pTitle = document.getElementById('phaseTitle');
@@ -168,7 +174,7 @@
 
       if (state.phase === 'LOBBY') {
         pTitle.textContent = '스마트폰 카메라로 QR 코드를 스캔하세요!';
-        pSub.textContent = `현재 ${totalP}명이 입장하였습니다. (최소 5명 이상 접속 시 시작 가능)`;
+        pSub.textContent = `현재 실제 연결된 인원: ${totalP}명 (5~35인 자동 밸런스)`;
 
         stage.innerHTML = `
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center w-full">
@@ -181,16 +187,16 @@
               <p class="text-xs text-slate-400 mt-2">QR을 찍으면 별도 앱 없이 즉시 입장</p>
             </div>
 
-            <!-- 현재 인원수에 맞춘 황금 직업 밸런스 -->
+            <!-- 현재 인원수에 맞춘 황금 직업 덱 -->
             <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between h-full">
               <div>
                 <span class="text-xs font-bold text-white flex justify-between mb-2">
-                  <span>🎭 인원수 맞춤 직업 덱</span>
-                  <span class="text-emerald-400 font-mono font-bold">${totalP}명 기준 자동 계산</span>
+                  <span>🎭 ${totalP}인 맞춤 직업 덱</span>
+                  <span class="text-emerald-400 font-mono font-bold">합계: ${totalP}명</span>
                 </span>
                 <div class="space-y-1.5 text-xs text-slate-300">
                   <div class="flex justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-                    <span>🩸 마피아 (보스 포함)</span><span class="font-bold text-rose-400 font-mono">${state.roleDeckConfig.mafia}명</span>
+                    <span>🩸 마피아 (보스 1명 포함)</span><span class="font-bold text-rose-400 font-mono">${state.roleDeckConfig.mafia}명</span>
                   </div>
                   <div class="flex justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
                     <span>🔍 경찰</span><span class="font-bold text-sky-400 font-mono">${state.roleDeckConfig.police}명</span>
@@ -206,7 +212,7 @@
                   </div>
                 </div>
               </div>
-              <p class="text-[10px] text-slate-500 mt-2">5~35명까지 접속 인원에 따라 황금 비율로 자동 조정됩니다.</p>
+              <p class="text-[10px] text-slate-500 mt-2">현재 실제 접속한 인원수(${totalP}명)를 기준으로 실시간 계산됩니다.</p>
             </div>
 
             <!-- 시작 버튼 -->
@@ -347,17 +353,26 @@
       // 로스터 렌더링
       const grid = document.getElementById('rosterGrid');
       const reveal = document.getElementById('revealCheck').checked;
+      const isLobby = state.phase === 'LOBBY';
+
       grid.innerHTML = state.players.map(p => `
-        <div class="p-2.5 rounded-xl border ${p.isAlive ? 'bg-slate-950 border-slate-800' : 'bg-slate-950/50 border-slate-900 opacity-40 grayscale'}">
+        <div class="relative p-2.5 rounded-xl border ${p.isAlive ? 'bg-slate-950 border-slate-800' : 'bg-slate-950/50 border-slate-900 opacity-40 grayscale'}">
           <div class="flex justify-between items-center mb-1">
             <span class="text-[10px] font-mono font-black w-5 h-5 rounded flex items-center justify-center ${p.isAlive ? 'bg-rose-900/50 text-rose-300' : 'bg-slate-800 text-slate-500'}">
               ${p.number}
             </span>
-            <span class="text-[9px] font-bold ${p.isAlive ? 'text-emerald-400' : 'text-slate-500'}">
-              ${p.isAlive ? '생존' : '사망'}
-            </span>
+            <div class="flex items-center gap-1">
+              <span class="text-[9px] font-bold ${p.isAlive ? 'text-emerald-400' : 'text-slate-500'}">
+                ${p.isAlive ? '생존' : '사망'}
+              </span>
+              ${isLobby ? `
+                <button onclick="kickPlayer(${p.id})" class="text-[9px] text-rose-500 hover:text-white bg-slate-800 hover:bg-rose-700 px-1 rounded transition" title="이 참가자 퇴장">
+                  ✕
+                </button>
+              ` : ''}
+            </div>
           </div>
-          <div class="text-xs font-bold text-white truncate">${p.name}</div>
+          <div class="text-xs font-bold text-white truncate" title="${p.name}">${p.name}</div>
           <div class="text-[10px] text-slate-500 truncate mt-0.5">
             ${(reveal || !p.isAlive) && p.role ? p.role : '직업 비밀'}
           </div>
@@ -365,17 +380,25 @@
       `).join('');
     }
 
+    window.kickPlayer = function(id) {
+      if (confirm('이 플레이어를 명단에서 제거하시겠습니까?')) {
+        socket.emit('host:kick_player', { id });
+      }
+    };
+
     document.getElementById('nextPhaseBtn').onclick = () => {
       initAudio();
       socket.emit('host:next_phase');
     };
 
-    // 다음 게임 준비 (참가자는 유지하고 직업/투표만 초기화)
+    document.getElementById('cleanupBtn').onclick = () => {
+      socket.emit('host:cleanup_dead');
+    };
+
     document.getElementById('roundResetBtn').onclick = () => {
       socket.emit('host:reset_game');
     };
 
-    // 방 완전 초기화 (참가자 전체 퇴장)
     document.getElementById('kickAllBtn').onclick = () => {
       if (confirm('모든 참가자를 방에서 퇴장시키고 완전히 초기화하시겠습니까?')) {
         socket.emit('host:kick_all');

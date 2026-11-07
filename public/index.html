@@ -99,6 +99,16 @@
     let mySecretRole = null;
     let currentServerState = null;
 
+    // 세션 토큰 복구
+    let storedToken = localStorage.getItem('mafia_player_token');
+    let storedName = localStorage.getItem('mafia_player_name');
+
+    if (storedToken && storedName) {
+      document.getElementById('nameInput').value = storedName;
+      // 자동 재연결 시도
+      socket.emit('player:join', { name: storedName, token: storedToken });
+    }
+
     // 1. 입장 버튼
     document.getElementById('joinBtn').onclick = () => {
       const name = document.getElementById('nameInput').value.trim();
@@ -106,11 +116,16 @@
         alert('닉네임을 입력해 주세요!');
         return;
       }
-      socket.emit('player:join', { name });
+      localStorage.setItem('mafia_player_name', name);
+      socket.emit('player:join', { name, token: storedToken });
     };
 
     socket.on('player:joined_success', (player) => {
       myPlayer = player;
+      if (player.token) {
+        localStorage.setItem('mafia_player_token', player.token);
+        storedToken = player.token;
+      }
       document.getElementById('joinScreen').classList.add('hidden');
       document.getElementById('gameScreen').classList.remove('hidden');
       document.getElementById('myNumberBadge').textContent = player.number;
@@ -167,9 +182,11 @@
     socket.on('player:force_kick', () => {
       myPlayer = null;
       mySecretRole = null;
+      localStorage.removeItem('mafia_player_token');
+      localStorage.removeItem('mafia_player_name');
       document.getElementById('joinScreen').classList.remove('hidden');
       document.getElementById('gameScreen').classList.add('hidden');
-      alert('방이 초기화되어 로비로 이동합니다.');
+      alert('방에서 퇴장되었습니다.');
     });
 
     // 3. 직업 가림막 터치 홀드 이벤트
