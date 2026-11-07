@@ -11,101 +11,205 @@
     @import url('https://fonts.googleapis.com/css2?family=Pretendard:wght@400;600;700;800;900&display=swap');
     body { font-family: 'Pretendard', sans-serif; user-select: none; }
     .night-stars { background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%); }
+    .shake {
+      animation: shake 0.4s cubic-bezier(.36,.07,.19,.97) both;
+    }
+    @keyframes shake {
+      10%, 90% { transform: translate3d(-1px, 0, 0); }
+      20%, 80% { transform: translate3d(2px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+      40%, 60% { transform: translate3d(4px, 0, 0); }
+    }
   </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased">
 
-  <!-- 상단 상태 헤더 -->
-  <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 flex items-center justify-between">
-    <div class="flex items-center gap-3">
-      <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-600 to-red-800 flex items-center justify-center font-black text-xl text-white shadow-lg shadow-rose-950">
-        M
+  <!-- ============================================== -->
+  <!-- [0] 호스트 비밀번호 잠금 화면 (기본 활성화) -->
+  <!-- ============================================== -->
+  <div id="authOverlay" class="fixed inset-0 bg-slate-950/98 backdrop-blur-xl z-[100] flex items-center justify-center p-4">
+    <div id="authBox" class="bg-slate-900 border border-slate-800 rounded-3xl p-8 max-w-sm w-full shadow-2xl flex flex-col items-center text-center gap-5">
+      <div class="w-16 h-16 rounded-2xl bg-gradient-to-br from-rose-600 to-red-800 flex items-center justify-center text-3xl shadow-lg shadow-rose-950">
+        🔒
       </div>
       <div>
-        <h1 class="font-extrabold text-lg text-white">MAFIA MASTER</h1>
-        <p class="text-xs text-rose-400 font-semibold">빔프로젝터 메인 전광판 (5~35인 자동 밸런스)</p>
+        <h2 class="text-2xl font-black text-white">호스트 화면 잠금</h2>
+        <p class="text-xs text-slate-400 mt-1">게임 제어 및 빔프로젝터 화면을 열려면 관리자 비밀번호를 입력하세요.</p>
       </div>
+
+      <div class="w-full">
+        <input type="password" id="passwordInput" placeholder="비밀번호 4자리 입력" maxlength="4" autofocus
+          class="w-full bg-slate-950 border border-slate-700 rounded-2xl py-3.5 px-4 text-center text-white font-mono text-xl tracking-widest focus:outline-none focus:border-rose-500 transition">
+        <p id="authError" class="text-xs text-rose-500 font-bold mt-2 hidden">비밀번호가 올바르지 않습니다.</p>
+      </div>
+
+      <button id="authSubmitBtn" class="w-full py-4 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 text-white font-black text-base rounded-2xl shadow-xl shadow-rose-950 transition">
+        확인 및 잠금 해제 ▶
+      </button>
+
+      <span class="text-[11px] text-slate-600">MAFIA MASTER SECURITY GATE</span>
     </div>
+  </div>
 
-    <!-- 호스트 제어 버튼들 -->
-    <div class="flex items-center gap-2">
-      <button id="cleanupBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 border border-slate-700 transition" title="새로고침 등으로 남은 유령 접속자를 즉시 정리합니다">
-        🧹 접속자 정리
-      </button>
-      <button id="audioToggleBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
-        🔊 사운드 ON
-      </button>
-      <button id="ttsToggleBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
-        🗣️ 음성 안내 ON
-      </button>
-      <button id="roundResetBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition font-bold" title="현재 접속 인원을 유지하고 새 게임을 시작합니다">
-        🔄 다음 게임 준비
-      </button>
-      <button id="kickAllBtn" class="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-xs text-rose-300 border border-rose-800 transition" title="모든 참가자를 방에서 퇴장시키고 초기화합니다">
-        ⚠️ 방 완전 초기화
-      </button>
-    </div>
-  </header>
-
-  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6">
-
-    <!-- 대형 스테이지 헤더 & 타이머 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-wrap items-center justify-between gap-6 relative overflow-hidden">
-      <div class="flex items-center gap-5">
-        <div id="phaseIconBadge" class="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-4xl shadow-inner">
-          🎪
+  <!-- ============================================== -->
+  <!-- [1] 호스트 메인 화면 컨텐츠 -->
+  <!-- ============================================== -->
+  <div id="mainHostContent" class="flex-1 flex flex-col opacity-0 pointer-events-none transition-opacity duration-300">
+    
+    <!-- 상단 상태 헤더 -->
+    <header class="bg-slate-900 border-b border-slate-800 px-6 py-3 sticky top-0 z-50 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-rose-600 to-red-800 flex items-center justify-center font-black text-xl text-white shadow-lg shadow-rose-950">
+          M
         </div>
         <div>
-          <div class="flex items-center gap-2 mb-1.5">
-            <span id="roundBadge" class="text-xs font-black px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">대기 중</span>
-            <span class="text-xs font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">ROOM: #MAFIA30</span>
-          </div>
-          <h2 id="phaseTitle" class="text-2xl sm:text-3xl font-black text-white">참가자 스마트폰 입장 대기</h2>
-          <p id="phaseSubtitle" class="text-sm text-slate-400 mt-1">참가자들은 QR 코드를 스캔하여 닉네임을 입력하고 입장하세요. (최소 5인 ~ 최대 35인)</p>
+          <h1 class="font-extrabold text-lg text-white">MAFIA MASTER</h1>
+          <p class="text-xs text-rose-400 font-semibold">빔프로젝터 메인 전광판 (5~35인 자동 밸런스)</p>
         </div>
       </div>
 
-      <!-- 타이머 & 다음 단계 -->
-      <div class="flex items-center gap-5 ml-auto">
-        <div class="bg-slate-950 border border-slate-800 px-6 py-3 rounded-2xl flex flex-col items-center min-w-[140px] shadow-inner">
-          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">남은 시간</span>
-          <span id="timerText" class="font-mono text-4xl sm:text-5xl font-black text-rose-500">00:00</span>
-        </div>
-        <button id="nextPhaseBtn" class="px-5 py-3 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 text-white rounded-xl text-sm font-black shadow-lg shadow-rose-950 transition">
-          다음 단계 ▶
+      <!-- 호스트 제어 버튼들 -->
+      <div class="flex items-center gap-2">
+        <button id="cleanupBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-amber-300 border border-slate-700 transition" title="새로고침 등으로 남은 유령 접속자를 즉시 정리합니다">
+          🧹 접속자 정리
+        </button>
+        <button id="audioToggleBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+          🔊 사운드 ON
+        </button>
+        <button id="ttsToggleBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
+          🗣️ 음성 안내 ON
+        </button>
+        <button id="roundResetBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition font-bold" title="현재 접속 인원을 유지하고 새 게임을 시작합니다">
+          🔄 다음 게임 준비
+        </button>
+        <button id="lockScreenBtn" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-400 border border-slate-700 transition" title="화면 다시 잠그기">
+          🔒 잠금
+        </button>
+        <button id="kickAllBtn" class="px-2.5 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-xs text-rose-300 border border-rose-800 transition" title="모든 참가자를 방에서 퇴장시키고 초기화합니다">
+          ⚠️ 방 완전 초기화
         </button>
       </div>
-    </div>
+    </header>
 
-    <!-- 메인 인터랙션 스테이지 (QR 코드 및 대기방 / 투표 집계 / 결과) -->
-    <div id="stageArea" class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl min-h-[260px] flex items-center justify-center">
-      <!-- 동적 렌더링 -->
-    </div>
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 flex flex-col gap-6">
 
-    <!-- 5~35인 실시간 플레이어 현황판 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="font-extrabold text-lg text-white flex items-center gap-3">
-          <span>👥 실제 접속자 명단</span>
-          <span id="playerStats" class="text-xs font-bold px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">0명 접속 중</span>
-        </h3>
-        <div class="flex items-center gap-4 text-xs text-slate-300">
-          <span class="text-slate-500 text-[11px] hidden sm:inline">* 중복된 이름은 [X]를 눌러 정리할 수 있습니다.</span>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="revealCheck" class="rounded border-slate-700 bg-slate-950 text-rose-600">
-            <span>사회자용 직업 공개</span>
-          </label>
+      <!-- 대형 스테이지 헤더 & 타이머 -->
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl flex flex-wrap items-center justify-between gap-6 relative overflow-hidden">
+        <div class="flex items-center gap-5">
+          <div id="phaseIconBadge" class="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center text-4xl shadow-inner">
+            🎪
+          </div>
+          <div>
+            <div class="flex items-center gap-2 mb-1.5">
+              <span id="roundBadge" class="text-xs font-black px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">대기 중</span>
+              <span class="text-xs font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">ROOM: #MAFIA30</span>
+            </div>
+            <h2 id="phaseTitle" class="text-2xl sm:text-3xl font-black text-white">참가자 스마트폰 입장 대기</h2>
+            <p id="phaseSubtitle" class="text-sm text-slate-400 mt-1">참가자들은 QR 코드를 스캔하여 닉네임을 입력하고 입장하세요. (최소 5인 ~ 최대 35인)</p>
+          </div>
+        </div>
+
+        <!-- 타이머 & 다음 단계 -->
+        <div class="flex items-center gap-5 ml-auto">
+          <div class="bg-slate-950 border border-slate-800 px-6 py-3 rounded-2xl flex flex-col items-center min-w-[140px] shadow-inner">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">남은 시간</span>
+            <span id="timerText" class="font-mono text-4xl sm:text-5xl font-black text-rose-500">00:00</span>
+          </div>
+          <button id="nextPhaseBtn" class="px-5 py-3 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 text-white rounded-xl text-sm font-black shadow-lg shadow-rose-950 transition">
+            다음 단계 ▶
+          </button>
         </div>
       </div>
 
-      <div id="rosterGrid" class="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-10 gap-2.5">
-        <!-- 플레이어 타일 동적 렌더링 -->
+      <!-- 메인 인터랙션 스테이지 (QR 코드 및 대기방 / 투표 집계 / 결과) -->
+      <div id="stageArea" class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl min-h-[260px] flex items-center justify-center">
+        <!-- 동적 렌더링 -->
       </div>
-    </div>
 
-  </main>
+      <!-- 5~35인 실시간 플레이어 현황판 -->
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-extrabold text-lg text-white flex items-center gap-3">
+            <span>👥 실제 접속자 명단</span>
+            <span id="playerStats" class="text-xs font-bold px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 border border-rose-500/30">0명 접속 중</span>
+          </h3>
+          <div class="flex items-center gap-4 text-xs text-slate-300">
+            <span class="text-slate-500 text-[11px] hidden sm:inline">* 중복된 이름은 [X]를 눌러 정리할 수 있습니다.</span>
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" id="revealCheck" class="rounded border-slate-700 bg-slate-950 text-rose-600">
+              <span>사회자용 직업 공개</span>
+            </label>
+          </div>
+        </div>
+
+        <div id="rosterGrid" class="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-10 gap-2.5">
+          <!-- 플레이어 타일 동적 렌더링 -->
+        </div>
+      </div>
+
+    </main>
+
+  </div>
 
   <script>
+    // ==============================================
+    // 비밀번호 보안 인증 (2146)
+    // ==============================================
+    const CORRECT_PIN = '2146';
+    const authOverlay = document.getElementById('authOverlay');
+    const authBox = document.getElementById('authBox');
+    const passwordInput = document.getElementById('passwordInput');
+    const authError = document.getElementById('authError');
+    const authSubmitBtn = document.getElementById('authSubmitBtn');
+    const mainHostContent = document.getElementById('mainHostContent');
+    const lockScreenBtn = document.getElementById('lockScreenBtn');
+
+    function checkAuth() {
+      if (sessionStorage.getItem('mafia_host_authenticated') === 'true') {
+        authOverlay.classList.add('hidden');
+        mainHostContent.classList.remove('opacity-0', 'pointer-events-none');
+        return true;
+      } else {
+        authOverlay.classList.remove('hidden');
+        mainHostContent.classList.add('opacity-0', 'pointer-events-none');
+        passwordInput.value = '';
+        setTimeout(() => passwordInput.focus(), 100);
+        return false;
+      }
+    }
+
+    function verifyPin() {
+      const val = passwordInput.value.trim();
+      if (val === CORRECT_PIN) {
+        sessionStorage.setItem('mafia_host_authenticated', 'true');
+        authError.classList.add('hidden');
+        authOverlay.classList.add('hidden');
+        mainHostContent.classList.remove('opacity-0', 'pointer-events-none');
+        initAudio();
+      } else {
+        authError.classList.remove('hidden');
+        authBox.classList.add('shake');
+        setTimeout(() => authBox.classList.remove('shake'), 500);
+        passwordInput.value = '';
+        passwordInput.focus();
+      }
+    }
+
+    authSubmitBtn.onclick = verifyPin;
+    passwordInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') verifyPin();
+    });
+
+    lockScreenBtn.onclick = () => {
+      sessionStorage.removeItem('mafia_host_authenticated');
+      checkAuth();
+    };
+
+    checkAuth();
+
+    // ==============================================
+    // 소켓 및 게임 로직
+    // ==============================================
     const socket = io();
     let currentServerState = null;
     let isSoundOn = true;
