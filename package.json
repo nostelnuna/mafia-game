@@ -1,0 +1,13 @@
+{
+  "name": "mafia-realtime-35",
+  "version": "1.0.0",
+  "description": "30~35인 대규모 오프라인 마피아 실시간 스마트 도우미",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.7.4"
+  }
+}
