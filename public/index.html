@@ -90,7 +90,7 @@
   </div>
 
   <footer class="text-center text-[11px] text-slate-600 py-2">
-    MAFIA 30+ SMART COMPANION
+    MAFIA SMART COMPANION (5~35 PLAYERS)
   </footer>
 
   <script>
@@ -117,6 +117,10 @@
       document.getElementById('myNameText').textContent = `${player.number}번 ${player.name}`;
     });
 
+    socket.on('error_message', (msg) => {
+      alert(msg);
+    });
+
     // 2. 비밀 직업 수신
     socket.on('player:secret_role', (roleData) => {
       mySecretRole = roleData;
@@ -132,6 +136,40 @@
       } else {
         document.getElementById('mafiaTeammatesBox').classList.add('hidden');
       }
+    });
+
+    // 다음 게임을 위한 로비 복귀 수신 (접속 유지)
+    socket.on('player:reset_to_lobby', () => {
+      mySecretRole = null;
+      document.getElementById('roleIcon').textContent = '🧑‍🌾';
+      document.getElementById('roleName').textContent = '직업 대기 중';
+      document.getElementById('roleTeam').textContent = '사회자가 새 게임을 시작하면 배분됩니다.';
+      document.getElementById('roleTeam').className = 'text-xs font-bold mb-2 text-slate-400';
+      document.getElementById('roleDesc').textContent = '새 라운드를 위해 대기 중입니다.';
+      document.getElementById('mafiaTeammatesBox').classList.add('hidden');
+      document.getElementById('myStatusBadge').textContent = '생존 중';
+      document.getElementById('myStatusBadge').className = 'text-[10px] font-bold px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30';
+      
+      const cover = document.getElementById('roleCover');
+      cover.style.opacity = '1';
+      cover.style.pointerEvents = 'auto';
+
+      document.getElementById('actionPanel').innerHTML = `
+        <div class="text-center py-4">
+          <span class="text-3xl block mb-1">⏳</span>
+          <p class="text-xs font-bold text-slate-300">새 게임 시작 대기 중</p>
+          <p class="text-[10px] text-slate-500 mt-1">호스트가 시작하면 새 직업이 배분됩니다.</p>
+        </div>
+      `;
+    });
+
+    // 강제 퇴장 수신
+    socket.on('player:force_kick', () => {
+      myPlayer = null;
+      mySecretRole = null;
+      document.getElementById('joinScreen').classList.remove('hidden');
+      document.getElementById('gameScreen').classList.add('hidden');
+      alert('방이 초기화되어 로비로 이동합니다.');
     });
 
     // 3. 직업 가림막 터치 홀드 이벤트

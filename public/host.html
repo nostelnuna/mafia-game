@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>30~35인 마피아 - 빔프로젝터 메인 화면</title>
+  <title>5~35인 마피아 - 빔프로젝터 메인 화면</title>
   <script src="https://cdn.tailwindcss.com/3.4.17"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <script src="/socket.io/socket.io.js"></script>
@@ -22,21 +22,24 @@
         M
       </div>
       <div>
-        <h1 class="font-extrabold text-lg text-white">MAFIA 30+ MASTER</h1>
-        <p class="text-xs text-rose-400 font-semibold">빔프로젝터 메인 전광판 (실시간 소켓 연동)</p>
+        <h1 class="font-extrabold text-lg text-white">MAFIA MASTER</h1>
+        <p class="text-xs text-rose-400 font-semibold">빔프로젝터 메인 전광판 (5~35인 자동 밸런스)</p>
       </div>
     </div>
 
     <!-- 호스트 제어 버튼들 -->
-    <div class="flex items-center gap-3">
+    <div class="flex items-center gap-2.5">
       <button id="audioToggleBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
         🔊 사운드 ON
       </button>
       <button id="ttsToggleBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-300 border border-slate-700 transition">
         🗣️ 음성 안내 ON
       </button>
-      <button id="resetBtn" class="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-xs text-rose-300 border border-rose-800 transition">
-        🔄 방 초기화
+      <button id="roundResetBtn" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs text-slate-200 border border-slate-700 transition" title="참가자는 유지하고 새 게임을 시작합니다">
+        🔄 다음 게임 준비
+      </button>
+      <button id="kickAllBtn" class="px-3 py-1.5 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-xs text-rose-300 border border-rose-800 transition" title="모든 참가자를 방에서 퇴장시키고 초기화합니다">
+        ⚠️ 방 완전 초기화
       </button>
     </div>
   </header>
@@ -55,7 +58,7 @@
             <span class="text-xs font-mono px-2.5 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700">ROOM: #MAFIA30</span>
           </div>
           <h2 id="phaseTitle" class="text-2xl sm:text-3xl font-black text-white">참가자 스마트폰 입장 대기</h2>
-          <p id="phaseSubtitle" class="text-sm text-slate-400 mt-1">참가자들은 QR 코드를 스캔하여 닉네임을 입력하고 입장하세요.</p>
+          <p id="phaseSubtitle" class="text-sm text-slate-400 mt-1">참가자들은 QR 코드를 스캔하여 닉네임을 입력하고 입장하세요. (최소 5인 ~ 최대 35인)</p>
         </div>
       </div>
 
@@ -76,7 +79,7 @@
       <!-- 동적 렌더링 -->
     </div>
 
-    <!-- 30~35인 실시간 플레이어 현황판 -->
+    <!-- 5~35인 실시간 플레이어 현황판 -->
     <div class="bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-xl">
       <div class="flex items-center justify-between mb-4">
         <h3 class="font-extrabold text-lg text-white flex items-center gap-3">
@@ -90,7 +93,7 @@
       </div>
 
       <div id="rosterGrid" class="grid grid-cols-2 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-10 gap-2.5">
-        <!-- 30~35개 플레이어 타일 동적 렌더링 -->
+        <!-- 플레이어 타일 동적 렌더링 -->
       </div>
     </div>
 
@@ -138,7 +141,10 @@
       window.speechSynthesis.speak(u);
     }
 
-    // 소켓 수신
+    socket.on('error_message', (msg) => {
+      alert(msg);
+    });
+
     socket.on('state:update', (state) => {
       currentServerState = state;
       renderAll(state);
@@ -152,8 +158,9 @@
     });
 
     function renderAll(state) {
+      const totalP = state.players.length;
       document.getElementById('roundBadge').textContent = state.phase === 'LOBBY' ? '대기 중' : `라운드 ${state.round}`;
-      document.getElementById('playerStats').textContent = `생존 ${state.players.filter(p => p.isAlive).length}명 / 총 ${state.players.length}명 접속`;
+      document.getElementById('playerStats').textContent = `생존 ${state.players.filter(p => p.isAlive).length}명 / 총 ${totalP}명 접속`;
 
       const stage = document.getElementById('stageArea');
       const pTitle = document.getElementById('phaseTitle');
@@ -161,7 +168,7 @@
 
       if (state.phase === 'LOBBY') {
         pTitle.textContent = '스마트폰 카메라로 QR 코드를 스캔하세요!';
-        pSub.textContent = '참가자들이 각자 접속하면 번호표가 배정되고, 시작 시 스마트폰에 직업이 은밀하게 배분됩니다.';
+        pSub.textContent = `현재 ${totalP}명이 입장하였습니다. (최소 5명 이상 접속 시 시작 가능)`;
 
         stage.innerHTML = `
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6 items-center w-full">
@@ -174,39 +181,40 @@
               <p class="text-xs text-slate-400 mt-2">QR을 찍으면 별도 앱 없이 즉시 입장</p>
             </div>
 
-            <!-- 인원수 선택 & 자동 직업 덱 -->
+            <!-- 현재 인원수에 맞춘 황금 직업 밸런스 -->
             <div class="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between h-full">
               <div>
                 <span class="text-xs font-bold text-white flex justify-between mb-2">
-                  <span>🎭 자동 밸런스 직업 덱</span>
-                  <span class="text-rose-400 font-mono font-bold">${state.players.length}명 참여 중</span>
+                  <span>🎭 인원수 맞춤 직업 덱</span>
+                  <span class="text-emerald-400 font-mono font-bold">${totalP}명 기준 자동 계산</span>
                 </span>
                 <div class="space-y-1.5 text-xs text-slate-300">
                   <div class="flex justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-                    <span>🩸 마피아 (보스 포함)</span><span class="font-bold text-rose-400">${state.roleDeckConfig.mafia}명</span>
+                    <span>🩸 마피아 (보스 포함)</span><span class="font-bold text-rose-400 font-mono">${state.roleDeckConfig.mafia}명</span>
                   </div>
                   <div class="flex justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-                    <span>🔍 경찰</span><span class="font-bold text-sky-400">${state.roleDeckConfig.police}명</span>
+                    <span>🔍 경찰</span><span class="font-bold text-sky-400 font-mono">${state.roleDeckConfig.police}명</span>
                   </div>
                   <div class="flex justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-                    <span>💉 의사</span><span class="font-bold text-emerald-400">${state.roleDeckConfig.doctor}명</span>
+                    <span>💉 의사</span><span class="font-bold text-emerald-400 font-mono">${state.roleDeckConfig.doctor}명</span>
                   </div>
                   <div class="flex justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-                    <span>🕵️ 사설탐정</span><span class="font-bold text-amber-400">${state.roleDeckConfig.detective}명</span>
+                    <span>🕵️ 사설탐정</span><span class="font-bold text-amber-400 font-mono">${state.roleDeckConfig.detective}명</span>
                   </div>
                   <div class="flex justify-between bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800">
-                    <span>🧑‍🌾 선량한 시민</span><span class="font-bold text-slate-400">${state.roleDeckConfig.citizen}명</span>
+                    <span>🧑‍🌾 선량한 시민</span><span class="font-bold text-slate-400 font-mono">${state.roleDeckConfig.citizen}명</span>
                   </div>
                 </div>
               </div>
-              <p class="text-[10px] text-slate-500 mt-2">참가자 수에 맞춰 마피아와 특수직 비율이 자동 조정됩니다.</p>
+              <p class="text-[10px] text-slate-500 mt-2">5~35명까지 접속 인원에 따라 황금 비율로 자동 조정됩니다.</p>
             </div>
 
             <!-- 시작 버튼 -->
             <div class="flex flex-col gap-3 justify-center">
               <button id="startBtn" class="w-full py-5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 text-white font-black text-lg rounded-2xl shadow-xl shadow-rose-950 transition transform hover:-translate-y-0.5">
-                🎮 게임 시작 (${state.players.length}명 직업 배분)
+                🎮 게임 시작 (${totalP}명 직업 배분)
               </button>
+              ${totalP < 5 ? '<p class="text-xs text-rose-400 text-center font-bold">⚠️ 최소 5명 이상 접속해야 시작할 수 있습니다.</p>' : ''}
             </div>
           </div>
         `;
@@ -218,6 +226,10 @@
         });
 
         document.getElementById('startBtn').onclick = () => {
+          if (totalP < 5) {
+            alert('최소 5명 이상 접속해야 게임을 시작할 수 있습니다.');
+            return;
+          }
           initAudio();
           socket.emit('host:start_game');
         };
@@ -234,7 +246,7 @@
         `;
       } else if (state.phase === 'DAY_DISCUSS') {
         pTitle.textContent = `제 ${state.round}일 차 낮 - 자유 토론`;
-        pSub.textContent = '30~35명의 인원이므로 5~6명씩 소그룹을 나누어 의견을 모으면 훨씬 효과적입니다.';
+        pSub.textContent = '참가자들은 의심스러운 인물을 추리하고 자유롭게 토론을 진행해 주세요.';
         stage.innerHTML = `
           <div class="text-center py-6">
             <span class="text-5xl block mb-2">🗣️</span>
@@ -322,8 +334,14 @@
             <h3 class="text-3xl font-black ${state.winner === 'MAFIA' ? 'text-rose-500' : 'text-emerald-400'}">
               ${state.winner === 'MAFIA' ? '마피아 진영의 승리!' : '시민 진영의 승리!'}
             </h3>
+            <button id="postGameResetBtn" class="mt-4 px-6 py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-slate-700 transition">
+              다음 라운드 준비 (참가자 유지)
+            </button>
           </div>
         `;
+        document.getElementById('postGameResetBtn').onclick = () => {
+          socket.emit('host:reset_game');
+        };
       }
 
       // 로스터 렌더링
@@ -352,9 +370,15 @@
       socket.emit('host:next_phase');
     };
 
-    document.getElementById('resetBtn').onclick = () => {
-      if (confirm('방을 초기화하시겠습니까?')) {
-        socket.emit('host:reset_game');
+    // 다음 게임 준비 (참가자는 유지하고 직업/투표만 초기화)
+    document.getElementById('roundResetBtn').onclick = () => {
+      socket.emit('host:reset_game');
+    };
+
+    // 방 완전 초기화 (참가자 전체 퇴장)
+    document.getElementById('kickAllBtn').onclick = () => {
+      if (confirm('모든 참가자를 방에서 퇴장시키고 완전히 초기화하시겠습니까?')) {
+        socket.emit('host:kick_all');
       }
     };
 
