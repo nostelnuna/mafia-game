@@ -179,7 +179,7 @@ function sendSecretRolesToPlayers() {
     if (roleObj.team === 'MAFIA') {
       teammates = gameState.players
         .filter(tm => tm.id !== p.id && ROLES[tm.role]?.team === 'MAFIA')
-        .map(tm => ({ number: tm.number, name: tm.name }));
+        .map(tm => ({ name: tm.name }));
     }
 
     io.to(p.socketId).emit('player:secret_role', {

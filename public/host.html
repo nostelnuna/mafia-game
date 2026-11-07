@@ -379,7 +379,7 @@
             <div class="grid grid-cols-2 gap-3">
               ${votes.slice(0, 4).map(v => `
                 <div class="bg-slate-950 p-3 rounded-xl border border-slate-800 flex justify-between items-center">
-                  <span class="font-bold text-xs text-white">${v.player?.number}번 ${v.player?.name}</span>
+                  <span class="font-bold text-xs text-white">${v.player?.name}</span>
                   <span class="font-black text-rose-500 font-mono text-sm">${v.count}표</span>
                 </div>
               `).join('')}
@@ -387,12 +387,12 @@
           </div>
         `;
       } else if (state.phase === 'DAY_TRIAL') {
-        pTitle.textContent = `최후 변론: ${state.trialCandidate?.number}번 ${state.trialCandidate?.name}`;
+        pTitle.textContent = `최후 변론: ${state.trialCandidate?.name}`;
         pSub.textContent = '지목된 후보자는 30초 동안 결백을 주장하세요. 곧 생사 투표가 열립니다.';
         stage.innerHTML = `
           <div class="text-center py-6 bg-slate-950 rounded-2xl border border-rose-900/40 p-4">
             <span class="text-xs font-bold text-rose-400 block mb-1">피고인 변론석</span>
-            <h3 class="text-3xl font-black text-white">${state.trialCandidate?.number}번 ${state.trialCandidate?.name}</h3>
+            <h3 class="text-3xl font-black text-white">${state.trialCandidate?.name}</h3>
           </div>
         `;
       } else if (state.phase === 'DAY_VERDICT') {
@@ -428,7 +428,7 @@
             ${rep?.victim ? `
               <span class="text-5xl block mb-2">🩸</span>
               <h3 class="text-2xl font-black text-rose-400 mb-1">비극이 발생했습니다</h3>
-              <p class="text-base font-bold text-white">${rep.victim.number}번 ${rep.victim.name} 님이 마피아의 습격으로 사망하셨습니다.</p>
+              <p class="text-base font-bold text-white">${rep.victim.name} 님이 마피아의 습격으로 사망하셨습니다.</p>
             ` : `
               <span class="text-5xl block mb-2">🕊️</span>
               <h3 class="text-2xl font-black text-emerald-400 mb-1">평화로운 아침입니다!</h3>
@@ -463,7 +463,7 @@
         <div class="relative p-2.5 rounded-xl border ${p.isAlive ? 'bg-slate-950 border-slate-800' : 'bg-slate-950/50 border-slate-900 opacity-40 grayscale'}">
           <div class="flex justify-between items-center mb-1">
             <span class="text-[10px] font-mono font-black w-5 h-5 rounded flex items-center justify-center ${p.isAlive ? 'bg-rose-900/50 text-rose-300' : 'bg-slate-800 text-slate-500'}">
-              ${p.number}
+              👤
             </span>
             <div class="flex items-center gap-1">
               <span class="text-[9px] font-bold ${p.isAlive ? 'text-emerald-400' : 'text-slate-500'}">

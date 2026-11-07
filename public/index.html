@@ -128,8 +128,8 @@
       }
       document.getElementById('joinScreen').classList.add('hidden');
       document.getElementById('gameScreen').classList.remove('hidden');
-      document.getElementById('myNumberBadge').textContent = player.number;
-      document.getElementById('myNameText').textContent = `${player.number}번 ${player.name}`;
+      document.getElementById('myNumberBadge').textContent = '👤';
+      document.getElementById('myNameText').textContent = player.name;
     });
 
     socket.on('error_message', (msg) => {
@@ -147,7 +147,7 @@
 
       if (roleData.team === 'MAFIA' && roleData.teammates && roleData.teammates.length > 0) {
         document.getElementById('mafiaTeammatesBox').classList.remove('hidden');
-        document.getElementById('mafiaTeammatesList').textContent = roleData.teammates.map(t => `${t.number}번 ${t.name}`).join(', ');
+        document.getElementById('mafiaTeammatesList').textContent = roleData.teammates.map(t => t.name).join(', ');
       } else {
         document.getElementById('mafiaTeammatesBox').classList.add('hidden');
       }
@@ -245,7 +245,7 @@
           <div>
             <span class="text-xs font-bold text-rose-400 block mb-2">처형 후보 지목 투표</span>
             <select id="nominateSelect" class="w-full bg-slate-950 text-white rounded-xl p-3 border border-slate-700 text-xs mb-3 focus:outline-none">
-              ${aliveOthers.map(p => `<option value="${p.id}">${p.number}번 ${p.name}</option>`).join('')}
+              ${aliveOthers.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
             </select>
             <button id="submitNominateBtn" class="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow">
               지목 투표 제출
@@ -276,7 +276,7 @@
           panel.innerHTML = `
             <div class="flex flex-col gap-2.5">
               <span class="text-xs font-bold text-center text-white">
-                ${state.trialCandidate?.number}번 ${state.trialCandidate?.name} 님에 대한 판결
+                ${state.trialCandidate?.name} 님에 대한 판결
               </span>
               <div class="grid grid-cols-2 gap-3">
                 <button id="voteG" class="py-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-2xl shadow">
@@ -308,7 +308,7 @@
                 <span>🩸</span> 습격 대상 선택 (마피아 전용)
               </span>
               <select id="mafiaTargetSelect" class="w-full bg-slate-950 text-xs text-white rounded-xl p-3 border border-slate-700">
-                ${nonMafia.map(p => `<option value="${p.id}">${p.number}번 ${p.name}</option>`).join('')}
+                ${nonMafia.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
               </select>
               <button id="mafiaKillBtn" class="w-full py-3 bg-rose-700 hover:bg-rose-600 text-white font-black text-xs rounded-xl shadow">
                 습격 대상 지정
@@ -328,7 +328,7 @@
                 <span>🔍</span> 용의자 조사 (경찰 전용)
               </span>
               <select id="policeTargetSelect" class="w-full bg-slate-950 text-xs text-white rounded-xl p-3 border border-slate-700">
-                ${targets.map(p => `<option value="${p.id}">${p.number}번 ${p.name}</option>`).join('')}
+                ${targets.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
               </select>
               <button id="policeCheckBtn" class="w-full py-3 bg-sky-600 hover:bg-sky-500 text-white font-black text-xs rounded-xl shadow">
                 조사 실행
@@ -347,7 +347,7 @@
                 <span>💉</span> 치료 대상 선택 (의사 전용)
               </span>
               <select id="doctorTargetSelect" class="w-full bg-slate-950 text-xs text-white rounded-xl p-3 border border-slate-700">
-                ${targets.map(p => `<option value="${p.id}">${p.number}번 ${p.name}</option>`).join('')}
+                ${targets.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
               </select>
               <button id="doctorHealBtn" class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow">
                 치료 지정
@@ -377,7 +377,7 @@
       const panel = document.getElementById('actionPanel');
       panel.innerHTML = `
         <div class="p-4 bg-slate-950 border border-slate-700 rounded-2xl text-center">
-          <span class="text-xs text-slate-400 block mb-1">${res.targetNumber}번 ${res.targetName} 조사 결과</span>
+          <span class="text-xs text-slate-400 block mb-1">${res.targetName} 조사 결과</span>
           <span class="text-base font-black ${res.isMafia ? 'text-rose-500' : 'text-emerald-400'}">
             ${res.isMafia ? '🔴 마피아입니다!' : '🟢 선량한 시민입니다.'}
           </span>
