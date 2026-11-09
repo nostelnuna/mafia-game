@@ -70,7 +70,7 @@
       <!-- 타이머 & 빠른 조작부 -->
       <div class="flex items-center gap-2 sm:gap-3">
         
-        <!-- 방장 전용 빠른 타이머 일시정지 & 연장 버튼 (방장일 때만 노출) -->
+        <!-- 방장 전용 빠른 타이머 일시정지 & 연장 버튼 (방장 인증 시에만 노출) -->
         <div id="hostQuickTimerControls" class="hidden items-center gap-1">
           <button id="quickPauseBtn" class="px-2 py-1 rounded-lg bg-amber-950/80 hover:bg-amber-900 border border-amber-800 text-amber-300 text-xs font-bold" title="토론 시간 일시정지/재개">
             ⏸️
@@ -93,7 +93,7 @@
           <span>👥</span> <span id="rosterCountText">0명</span>
         </button>
         <button id="hostMenuBtn" class="px-2.5 py-1.5 rounded-xl bg-slate-800 hover:bg-rose-950 text-xs text-slate-300 hover:text-rose-400 border border-slate-700 font-bold flex items-center gap-1 transition">
-          <span id="hostBtnIcon">👑</span> <span id="hostBtnText">방장 인증</span>
+          <span id="hostBtnIcon">🔑</span> <span id="hostBtnText">방장 인증</span>
         </button>
       </div>
     </header>
@@ -196,11 +196,11 @@
         <button id="closeHostModalBtn" class="text-slate-400 hover:text-white text-lg">✕</button>
       </div>
 
-      <!-- 방장 권한이 없을 경우: PIN 입력창 (비밀번호: 2146) -->
+      <!-- 방장 권한이 없을 경우: PIN 입력창 (비밀번호 노출 텍스트 완전 삭제됨) -->
       <div id="hostPinSection">
-        <p class="text-xs text-slate-400 mb-2">방장 권한을 얻으려면 관리자 비밀번호(<strong>2146</strong>)를 입력하세요.</p>
+        <p class="text-xs text-slate-400 mb-2">방장 권한을 획득하려면 관리자 비밀번호를 입력하세요.</p>
         <div class="flex gap-2">
-          <input type="password" id="hostPinInput" placeholder="비밀번호 4자리" maxlength="4"
+          <input type="password" id="hostPinInput" placeholder="비밀번호 입력" maxlength="4"
             class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-center text-white font-mono text-sm focus:outline-none focus:border-rose-500">
           <button id="submitHostPinBtn" class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow">
             인증
@@ -211,7 +211,7 @@
       <!-- 방장 권한이 있을 경우: 조작 & 역할 선택 패널 -->
       <div id="hostControlsSection" class="hidden flex flex-col gap-3">
         
-        <!-- [핵심 기능 2] 방장의 역할 선택: 사회자(관전/진행) vs 참가자(플레이) -->
+        <!-- 방장 역할 선택 (사회자 vs 참가자) -->
         <div class="p-3 bg-slate-950 rounded-2xl border border-slate-800">
           <span class="text-xs font-bold text-white block mb-1.5 flex items-center gap-1.5">
             <span>🎭</span> 방장 역할 선택
@@ -245,7 +245,7 @@
           </div>
         </div>
 
-        <!-- 게임 진행 버튼들 -->
+        <!-- 게임 진행 & 초기화 버튼들 -->
         <button id="hostStartGameBtn" class="w-full py-3.5 bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 text-white font-black text-sm rounded-xl shadow-lg shadow-rose-950 transition">
           🎮 게임 시작 (직업 자동 배분)
         </button>
@@ -254,6 +254,9 @@
         </button>
         <button id="copyInviteBtn" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 font-bold text-xs rounded-xl border border-slate-700 transition">
           📋 방 링크 복사 (친구 초대)
+        </button>
+        <button id="hostKickAllBtn" class="w-full py-2 bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-bold text-xs rounded-xl border border-rose-800 transition">
+          ⚠️ 방 완전 초기화 (전원 퇴장)
         </button>
       </div>
 
@@ -317,7 +320,7 @@
       } catch(e){}
     }
 
-    // 1. 세션 복구 및 입장 (1번째 사람 자동 방장 배정 없음)
+    // 1. 세션 복구 및 입장
     let storedToken = localStorage.getItem('mafia_online_token');
     let storedName = localStorage.getItem('mafia_online_name');
 
@@ -374,7 +377,7 @@
       }
     }
 
-    // 2. 방장 인증 (비밀번호: 2146)
+    // 2. 방장 인증
     document.getElementById('submitHostPinBtn').onclick = () => {
       const pin = document.getElementById('hostPinInput').value.trim();
       socket.emit('online:claim_host', { pin });
@@ -415,7 +418,7 @@
       socket.emit('online:set_host_mode', { isModerator: true });
     };
 
-    // 3. 타이머 제어 (일시정지, 연장, 다음 단계)
+    // 3. 타이머 제어
     const hostTimerPauseBtn = document.getElementById('hostTimerPauseBtn');
     const quickPauseBtn = document.getElementById('quickPauseBtn');
 
@@ -810,7 +813,7 @@
     socket.on('online:force_kick', () => {
       localStorage.removeItem('mafia_online_token');
       localStorage.removeItem('mafia_online_name');
-      alert('방에서 퇴장되었습니다.');
+      alert('방이 초기화되어 퇴장되었습니다.');
       window.location.reload();
     });
 
@@ -832,6 +835,13 @@
     document.getElementById('copyInviteBtn').onclick = () => {
       navigator.clipboard.writeText(window.location.origin + '/online');
       alert('초대 링크(/online)가 복사되었습니다! 카카오톡이나 디스코드에 붙여넣으세요.');
+    };
+
+    document.getElementById('hostKickAllBtn').onclick = () => {
+      if (confirm('모든 참가자를 퇴장시키고 방을 처음 상태로 완전히 초기화하시겠습니까?')) {
+        socket.emit('online:kick_all');
+        hostModal.classList.add('hidden');
+      }
     };
 
     window.kickPlayer = (id) => {

@@ -985,6 +985,26 @@ io.on('connection', (socket) => {
     broadcastOnlineState();
   });
 
+    socket.on('online:kick_all', () => {
+    const sender = onlineState.players.find(p => p.socketId === socket.id);
+    if (!sender || !sender.isHost) return;
+    clearInterval(onlineState.timerInterval);
+    onlineState.phase = 'LOBBY';
+    onlineState.round = 1;
+    onlineState.isTimerPaused = false;
+    onlineState.players = [];
+    onlineState.trialCandidate = null;
+    onlineState.nominationVotes = {};
+    onlineState.verdictVotes = { guilty: 0, innocent: 0, votedSockets: new Set() };
+    onlineState.nightActions = { mafiaVotes: {}, doctorTarget: null, policeTarget: null };
+    onlineState.lastNightReport = null;
+    onlineState.winner = null;
+    onlineState.roleDeckConfig = getAutoRoleDeck(5);
+
+    io.to('room_online').emit('online:force_kick');
+    broadcastOnlineState();
+  });
+
   socket.on('online:kick_player', ({ id }) => {
     const sender = onlineState.players.find(p => p.socketId === socket.id);
     if (!sender || !sender.isHost) return;
