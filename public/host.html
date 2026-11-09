@@ -211,6 +211,7 @@
     // 소켓 및 게임 로직
     // ==============================================
     const socket = io();
+    socket.emit('offline:init');
     let currentServerState = null;
     let isSoundOn = true;
     let isTtsOn = true;
@@ -255,12 +256,12 @@
       alert(msg);
     });
 
-    socket.on('state:update', (state) => {
+    socket.on('offline:state_update', (state) => {
       currentServerState = state;
       renderAll(state);
     });
 
-    socket.on('timer:tick', (sec) => {
+    socket.on('offline:timer_tick', (sec) => {
       const m = String(Math.floor(sec / 60)).padStart(2, '0');
       const s = String(sec % 60).padStart(2, '0');
       document.getElementById('timerText').textContent = `${m}:${s}`;
@@ -286,7 +287,7 @@
             <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 flex flex-col items-center">
               <div id="qrcodeBox" class="p-3 bg-white rounded-2xl shadow-xl mb-3"></div>
               <span class="text-xs font-mono font-bold text-rose-400 bg-rose-950/60 px-3 py-1 rounded-full border border-rose-900/50">
-                ${window.location.origin}
+                ${window.location.origin}/offline
               </span>
               <p class="text-xs text-slate-400 mt-2">QR을 찍으면 별도 앱 없이 즉시 입장</p>
             </div>
@@ -341,7 +342,7 @@
             return;
           }
           initAudio();
-          socket.emit('host:start_game');
+          socket.emit('offline:host_start_game');
         };
 
       } else if (state.phase === 'FIRST_NIGHT') {
@@ -450,7 +451,7 @@
           </div>
         `;
         document.getElementById('postGameResetBtn').onclick = () => {
-          socket.emit('host:reset_game');
+          socket.emit('offline:reset_game');
         };
       }
 
@@ -486,26 +487,26 @@
 
     window.kickPlayer = function(id) {
       if (confirm('이 플레이어를 명단에서 제거하시겠습니까?')) {
-        socket.emit('host:kick_player', { id });
+        socket.emit('offline:kick_player', { id });
       }
     };
 
     document.getElementById('nextPhaseBtn').onclick = () => {
       initAudio();
-      socket.emit('host:next_phase');
+      socket.emit('offline:next_phase');
     };
 
     document.getElementById('cleanupBtn').onclick = () => {
-      socket.emit('host:cleanup_dead');
+      socket.emit('offline:cleanup_dead');
     };
 
     document.getElementById('roundResetBtn').onclick = () => {
-      socket.emit('host:reset_game');
+      socket.emit('offline:reset_game');
     };
 
     document.getElementById('kickAllBtn').onclick = () => {
       if (confirm('모든 참가자를 방에서 퇴장시키고 완전히 초기화하시겠습니까?')) {
-        socket.emit('host:kick_all');
+        socket.emit('offline:kick_all');
       }
     };
 
