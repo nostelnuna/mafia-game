@@ -13,11 +13,11 @@ const HOST_PIN = '2146';
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 라우팅 분리
+// 라우팅
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html'))); // 메인 허브
 app.get('/host', (req, res) => res.sendFile(path.join(__dirname, 'public', 'host.html'))); // 대면 빔프로젝터
 app.get('/offline', (req, res) => res.sendFile(path.join(__dirname, 'public', 'offline.html'))); // 대면 스마트폰
-app.get('/online', (req, res) => res.sendFile(path.join(__dirname, 'public', 'online.html'))); // 비대면 온라인 채팅
+app.get('/online', (req, res) => res.sendFile(path.join(__dirname, 'public', 'online.html'))); // 비대면 온라인
 
 // 직업 정의
 const ROLES = {
@@ -26,7 +26,8 @@ const ROLES = {
   POLICE: { name: '경찰', team: 'CITIZEN', icon: '🔍', desc: '밤마다 1명을 조사하여 마피아 여부를 즉시 알아냅니다.' },
   DOCTOR: { name: '의사', team: 'CITIZEN', icon: '💉', desc: '밤마다 1명을 지목해 마피아의 습격으로부터 생명을 지킵니다.' },
   DETECTIVE: { name: '사설탐정', team: 'CITIZEN', icon: '🕵️', desc: '밤마다 1명을 감시하여 누구를 방문했는지 동선을 추적합니다.' },
-  CITIZEN: { name: '선량한 시민', team: 'CITIZEN', icon: '🧑‍🌾', desc: '특수 능력은 없지만 낮 토론과 투표로 마피아를 찾아냅니다.' }
+  CITIZEN: { name: '선량한 시민', team: 'CITIZEN', icon: '🧑‍🌾', desc: '특수 능력은 없지만 낮 토론과 투표로 마피아를 찾아냅니다.' },
+  MODERATOR: { name: '사회자(진행/관전)', team: 'SPECTATOR', icon: '🎙️', desc: '게임에 직접 참여하지 않고 전체 진행 및 관전을 총괄합니다.' }
 };
 
 // 5~35인 황금 직업 밸런스 공식
@@ -60,7 +61,7 @@ function getAutoRoleDeck(total) {
 }
 
 // ==============================================================
-// [A] 대면 모임용 게임 엔진 (OFFLINE GAME ENGINE)
+// [A] 대면 모임용 게임 엔진 (OFFLINE)
 // ==============================================================
 const offlineState = {
   phase: 'LOBBY',
@@ -156,15 +157,16 @@ function sendOfflineSecretRoles() {
 }
 
 // ==============================================================
-// [B] 비대면 온라인용 게임 엔진 (ONLINE GAME ENGINE)
+// [B] 비대면 온라인용 게임 엔진 (ONLINE)
 // ==============================================================
 const onlineState = {
   phase: 'LOBBY',
   round: 1,
-  players: [],
+  players: [], // { token, socketId, id, name, role, isAlive, isHost, isModerator, deathReason }
   roleDeckConfig: getAutoRoleDeck(5),
   timerSeconds: 0,
   timerInterval: null,
+  isTimerPaused: false,
   nominationVotes: {},
   trialCandidate: null,
   verdictVotes: { guilty: 0, innocent: 0, votedSockets: new Set() },
@@ -180,9 +182,7 @@ function cleanupDeadOnlineSockets() {
     const s = activeSockets.get(p.socketId);
     return s && s.connected;
   });
-  if (onlineState.players.length > 0 && !onlineState.players.some(p => p.isHost)) {
-    onlineState.players[0].isHost = true;
-  }
+  // 1번째 입장자 자동 방장 승격 기능 완전히 제거됨 (비밀번호 입력자만 방장 유지)
 }
 
 function broadcastOnlineSystemMsg(text, channel = 'all') {
@@ -210,22 +210,26 @@ function broadcastOnlineSystemMsg(text, channel = 'all') {
 
 function broadcastOnlineState() {
   cleanupDeadOnlineSockets();
-  const count = onlineState.players.length;
-  onlineState.roleDeckConfig = getAutoRoleDeck(count >= 5 ? count : 5);
+  // 사회자(isModerator)를 제외한 실제 게임 참가자 수 기준으로 직업 덱 계산
+  const playingCount = onlineState.players.filter(p => !p.isModerator).length;
+  onlineState.roleDeckConfig = getAutoRoleDeck(playingCount >= 5 ? playingCount : 5);
 
   io.to('room_online').emit('online:state_update', {
     phase: onlineState.phase,
     round: onlineState.round,
-    playerCount: count,
+    playerCount: onlineState.players.length,
+    playingCount: playingCount,
     roleDeckConfig: onlineState.roleDeckConfig,
     timerSeconds: onlineState.timerSeconds,
+    isTimerPaused: onlineState.isTimerPaused,
     players: onlineState.players.map(p => ({
       id: p.id,
       name: p.name,
       isAlive: p.isAlive,
       isHost: p.isHost,
+      isModerator: p.isModerator,
       deathReason: p.deathReason,
-      role: !p.isAlive || onlineState.phase === 'GAME_OVER' ? p.role : null
+      role: !p.isAlive || onlineState.phase === 'GAME_OVER' || p.isModerator ? p.role : null
     })),
     trialCandidate: onlineState.trialCandidate,
     nominationVotes: onlineState.nominationVotes,
@@ -238,22 +242,25 @@ function broadcastOnlineState() {
 function startOnlineTimer(sec, onComplete) {
   clearInterval(onlineState.timerInterval);
   onlineState.timerSeconds = sec;
-  io.to('room_online').emit('online:timer_tick', onlineState.timerSeconds);
+  onlineState.isTimerPaused = false;
+  io.to('room_online').emit('online:timer_tick', { seconds: onlineState.timerSeconds, isPaused: false });
 
   onlineState.timerInterval = setInterval(() => {
-    onlineState.timerSeconds--;
-    io.to('room_online').emit('online:timer_tick', onlineState.timerSeconds);
-    if (onlineState.timerSeconds <= 0) {
-      clearInterval(onlineState.timerInterval);
-      if (onComplete) onComplete();
+    if (!onlineState.isTimerPaused) {
+      onlineState.timerSeconds--;
+      io.to('room_online').emit('online:timer_tick', { seconds: onlineState.timerSeconds, isPaused: false });
+      if (onlineState.timerSeconds <= 0) {
+        clearInterval(onlineState.timerInterval);
+        if (onComplete) onComplete();
+      }
     }
   }, 1000);
 }
 
 function checkOnlineVictory() {
-  const alive = onlineState.players.filter(p => p.isAlive);
-  const m = alive.filter(p => p.role && ROLES[p.role]?.team === 'MAFIA');
-  const c = alive.filter(p => p.role && ROLES[p.role]?.team === 'CITIZEN');
+  const alivePlaying = onlineState.players.filter(p => p.isAlive && !p.isModerator);
+  const m = alivePlaying.filter(p => p.role && ROLES[p.role]?.team === 'MAFIA');
+  const c = alivePlaying.filter(p => p.role && ROLES[p.role]?.team === 'CITIZEN');
   if (m.length === 0) return 'CITIZEN';
   if (m.length >= c.length) return 'MAFIA';
   return null;
@@ -262,10 +269,25 @@ function checkOnlineVictory() {
 function sendOnlineSecretRoles() {
   onlineState.players.forEach(p => {
     if (!p.socketId) return;
+
+    if (p.isModerator) {
+      io.to(p.socketId).emit('online:secret_role', {
+        role: 'MODERATOR',
+        roleName: '진행 사회자',
+        team: 'SPECTATOR',
+        icon: '🎙️',
+        desc: '게임에 직접 참여하지 않으며, 토론 시간 일시정지, 시간 연장 등 전체 진행을 총괄합니다.',
+        teammates: []
+      });
+      return;
+    }
+
     const roleObj = ROLES[p.role] || ROLES.CITIZEN;
     let teammates = [];
     if (roleObj.team === 'MAFIA') {
-      teammates = onlineState.players.filter(tm => tm.id !== p.id && ROLES[tm.role]?.team === 'MAFIA').map(tm => ({ name: tm.name }));
+      teammates = onlineState.players
+        .filter(tm => tm.id !== p.id && !tm.isModerator && ROLES[tm.role]?.team === 'MAFIA')
+        .map(tm => ({ name: tm.name }));
     }
     io.to(p.socketId).emit('online:secret_role', {
       role: p.role,
@@ -279,12 +301,12 @@ function sendOnlineSecretRoles() {
 }
 
 // ==============================================================
-// SOCKET.IO 라우팅 & 이벤트 분기
+// SOCKET.IO 라우팅 & 이벤트
 // ==============================================================
 io.on('connection', (socket) => {
 
   // -------------------------------------------------------------
-  // [1] 대면 모임 모드 이벤트 (OFFLINE)
+  // [1] 대면 오프라인 이벤트
   // -------------------------------------------------------------
   socket.on('offline:init', () => {
     socket.join('room_offline');
@@ -365,9 +387,7 @@ io.on('connection', (socket) => {
     offlineState.round = 1;
     broadcastOfflineState();
 
-    startOfflineTimer(45, () => {
-      offlineDayDiscuss();
-    });
+    startOfflineTimer(45, () => offlineDayDiscuss());
   });
 
   function offlineDayDiscuss() {
@@ -513,9 +533,7 @@ io.on('connection', (socket) => {
     offlineState.phase = 'LOBBY';
     offlineState.round = 1;
     cleanupDeadOfflineSockets();
-    offlineState.players.forEach(p => {
-      p.role = null; p.isAlive = true; p.deathReason = null;
-    });
+    offlineState.players.forEach(p => { p.role = null; p.isAlive = true; p.deathReason = null; });
     offlineState.trialCandidate = null;
     offlineState.nominationVotes = {};
     offlineState.verdictVotes = { guilty: 0, innocent: 0, votedSockets: new Set() };
@@ -550,7 +568,7 @@ io.on('connection', (socket) => {
   });
 
   // -------------------------------------------------------------
-  // [2] 비대면 온라인 모드 이벤트 (ONLINE)
+  // [2] 비대면 온라인 이벤트 (사회자 모드 & 비밀번호 방장 승인)
   // -------------------------------------------------------------
   socket.on('online:init', () => {
     socket.join('room_online');
@@ -567,7 +585,13 @@ io.on('connection', (socket) => {
     if (existing) {
       existing.socketId = socket.id;
       if (token) existing.token = token;
-      socket.emit('online:joined_success', { token: existing.token, id: existing.id, name: existing.name, isHost: existing.isHost });
+      socket.emit('online:joined_success', {
+        token: existing.token,
+        id: existing.id,
+        name: existing.name,
+        isHost: existing.isHost,
+        isModerator: existing.isModerator
+      });
       if (existing.role) sendOnlineSecretRoles();
       broadcastOnlineState();
       return;
@@ -579,7 +603,6 @@ io.on('connection', (socket) => {
     }
 
     const assignedToken = token || crypto.randomUUID();
-    const isFirst = onlineState.players.length === 0;
     const newPlayer = {
       token: assignedToken,
       socketId: socket.id,
@@ -587,23 +610,31 @@ io.on('connection', (socket) => {
       name: cleanName,
       role: null,
       isAlive: true,
-      isHost: isFirst,
+      isHost: false, // 1번째 입장자 자동 방장 기능 완전 제거 (모두 일반 플레이어로 시작)
+      isModerator: false,
       deathReason: null
     };
 
     onlineState.players.push(newPlayer);
-    socket.emit('online:joined_success', { token: newPlayer.token, id: newPlayer.id, name: newPlayer.name, isHost: newPlayer.isHost });
+    socket.emit('online:joined_success', {
+      token: newPlayer.token,
+      id: newPlayer.id,
+      name: newPlayer.name,
+      isHost: false,
+      isModerator: false
+    });
     broadcastOnlineSystemMsg(`${cleanName} 님이 입장하셨습니다. (현재 ${onlineState.players.length}명)`);
     broadcastOnlineState();
   });
 
+  // 비밀번호(2146)를 입력해야만 방장 승인
   socket.on('online:claim_host', ({ pin }) => {
     if (pin === HOST_PIN) {
       const p = onlineState.players.find(pl => pl.socketId === socket.id);
       if (p) {
         p.isHost = true;
-        socket.emit('online:host_verified', true);
-        broadcastOnlineSystemMsg(`${p.name} 님이 방장 권한을 획득하셨습니다.`);
+        socket.emit('online:host_verified', { isHost: true, isModerator: p.isModerator });
+        broadcastOnlineSystemMsg(`👑 [${p.name}] 님이 관리자 비밀번호를 인증하여 방장 권한을 획득하셨습니다.`);
         broadcastOnlineState();
       }
     } else {
@@ -611,6 +642,50 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 방장의 역할 모드 변경 (사회자/관전 vs 참가자/플레이어)
+  socket.on('online:set_host_mode', ({ isModerator }) => {
+    const p = onlineState.players.find(pl => pl.socketId === socket.id);
+    if (!p || !p.isHost) return;
+
+    p.isModerator = !!isModerator;
+    if (p.isModerator) {
+      p.role = 'MODERATOR';
+      broadcastOnlineSystemMsg(`🎙️ 방장 [${p.name}] 님이 게임에 직접 참여하지 않고 [진행 사회자] 모드를 선택하셨습니다.`);
+    } else {
+      p.role = null;
+      broadcastOnlineSystemMsg(`🎮 방장 [${p.name}] 님이 [일반 참가자]로 직접 게임에 참여합니다.`);
+    }
+    broadcastOnlineState();
+  });
+
+  // 사회자 / 방장 타이머 일시정지 & 재개
+  socket.on('online:timer_toggle', () => {
+    const p = onlineState.players.find(pl => pl.socketId === socket.id);
+    if (!p || !p.isHost) return;
+
+    onlineState.isTimerPaused = !onlineState.isTimerPaused;
+    io.to('room_online').emit('online:timer_tick', { seconds: onlineState.timerSeconds, isPaused: onlineState.isTimerPaused });
+
+    if (onlineState.isTimerPaused) {
+      broadcastOnlineSystemMsg(`⏸️ 방장(사회자)이 토론 시간을 일시정지했습니다.`);
+    } else {
+      broadcastOnlineSystemMsg(`▶️ 방장(사회자)이 타이머를 재개했습니다.`);
+    }
+    broadcastOnlineState();
+  });
+
+  // 사회자 / 방장 시간 연장 (+30초, +60초)
+  socket.on('online:timer_add', ({ seconds }) => {
+    const p = onlineState.players.find(pl => pl.socketId === socket.id);
+    if (!p || !p.isHost) return;
+
+    onlineState.timerSeconds += parseInt(seconds) || 30;
+    io.to('room_online').emit('online:timer_tick', { seconds: onlineState.timerSeconds, isPaused: onlineState.isTimerPaused });
+    broadcastOnlineSystemMsg(`⏱️ 방장(사회자)이 토론 시간을 ${seconds}초 연장했습니다.`);
+    broadcastOnlineState();
+  });
+
+  // 실시간 다채널 채팅
   socket.on('online:chat_send', ({ text, channel }) => {
     const sender = onlineState.players.find(p => p.socketId === socket.id);
     if (!sender || !text.trim()) return;
@@ -623,8 +698,15 @@ io.on('connection', (socket) => {
       channel: channel || 'public',
       isSystem: false,
       isHost: sender.isHost,
+      isModerator: sender.isModerator,
       time: new Date().toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
     };
+
+    if (sender.isModerator) {
+      msgObj.sender = `🎙️ [사회자] ${sender.name}`;
+      io.to('room_online').emit('online:chat_message', msgObj);
+      return;
+    }
 
     if (channel === 'public') {
       if (!sender.isAlive) {
@@ -657,17 +739,21 @@ io.on('connection', (socket) => {
     }
   });
 
+  // 게임 시작 (사회자 제외 플레이어 수 기준으로 직업 배분)
   socket.on('online:start_game', () => {
     const sender = onlineState.players.find(p => p.socketId === socket.id);
     if (!sender || !sender.isHost || onlineState.phase !== 'LOBBY') return;
     cleanupDeadOnlineSockets();
-    const total = onlineState.players.length;
-    if (total < 5) {
-      socket.emit('error_message', `현재 ${total}명입니다. 최소 5명 이상 접속해야 합니다.`);
+
+    const playingPlayers = onlineState.players.filter(p => !p.isModerator);
+    const totalPlaying = playingPlayers.length;
+
+    if (totalPlaying < 5) {
+      socket.emit('error_message', `실제 게임 참여 인원이 ${totalPlaying}명입니다. 사회자를 제외하고 최소 5명 이상이어야 시작할 수 있습니다.`);
       return;
     }
 
-    onlineState.roleDeckConfig = getAutoRoleDeck(total);
+    onlineState.roleDeckConfig = getAutoRoleDeck(totalPlaying);
     const cfg = onlineState.roleDeckConfig;
     const deck = [];
     if (cfg.mafia > 0) {
@@ -677,14 +763,14 @@ io.on('connection', (socket) => {
     for (let i = 0; i < cfg.police; i++) deck.push('POLICE');
     for (let i = 0; i < cfg.doctor; i++) deck.push('DOCTOR');
     for (let i = 0; i < cfg.detective; i++) deck.push('DETECTIVE');
-    while (deck.length < total) deck.push('CITIZEN');
+    while (deck.length < totalPlaying) deck.push('CITIZEN');
 
     for (let i = deck.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [deck[i], deck[j]] = [deck[j], deck[i]];
     }
 
-    onlineState.players.forEach((p, idx) => {
+    playingPlayers.forEach((p, idx) => {
       p.role = deck[idx] || 'CITIZEN';
       p.isAlive = true;
       p.deathReason = null;
@@ -695,7 +781,7 @@ io.on('connection', (socket) => {
     onlineState.round = 1;
     broadcastOnlineState();
 
-    broadcastOnlineSystemMsg(`🎮 게임이 시작되었습니다! (${total}인: 마피아 ${cfg.mafia}명, 경찰 ${cfg.police}명, 의사 ${cfg.doctor}명, 탐정 ${cfg.detective}명, 시민 ${cfg.citizen}명)`);
+    broadcastOnlineSystemMsg(`🎮 게임이 시작되었습니다! (참가자 ${totalPlaying}인: 마피아 ${cfg.mafia}명, 경찰 ${cfg.police}명, 의사 ${cfg.doctor}명, 탐정 ${cfg.detective}명, 시민 ${cfg.citizen}명)`);
     broadcastOnlineSystemMsg(`🤫 첫째 날 밤입니다. 자신의 비밀 직업을 확인하세요. (45초)`);
 
     startOnlineTimer(45, () => onlineDayDiscuss());
@@ -704,7 +790,7 @@ io.on('connection', (socket) => {
   function onlineDayDiscuss() {
     onlineState.phase = 'DAY_DISCUSS';
     broadcastOnlineState();
-    broadcastOnlineSystemMsg(`☀️ 제 ${onlineState.round}일 차 낮이 밝았습니다. 2분간 자유롭게 토론하세요!`);
+    broadcastOnlineSystemMsg(`☀️ 제 ${onlineState.round}일 차 낮이 밝았습니다. 자유롭게 토론하세요!`);
     startOnlineTimer(120, () => onlineNominate());
   }
 
@@ -718,7 +804,7 @@ io.on('connection', (socket) => {
 
   socket.on('online:nominate', ({ targetId }) => {
     const voter = onlineState.players.find(p => p.socketId === socket.id);
-    if (!voter || !voter.isAlive || onlineState.phase !== 'DAY_NOMINATE') return;
+    if (!voter || !voter.isAlive || voter.isModerator || onlineState.phase !== 'DAY_NOMINATE') return;
     onlineState.nominationVotes[targetId] = (onlineState.nominationVotes[targetId] || 0) + 1;
     broadcastOnlineState();
   });
@@ -728,8 +814,8 @@ io.on('connection', (socket) => {
     Object.entries(onlineState.nominationVotes).forEach(([id, cnt]) => {
       if (cnt > maxV) { maxV = cnt; topId = id; }
     });
-    const alive = onlineState.players.filter(p => p.isAlive);
-    onlineState.trialCandidate = alive.find(p => p.id === topId) || alive[0];
+    const alivePlaying = onlineState.players.filter(p => p.isAlive && !p.isModerator);
+    onlineState.trialCandidate = alivePlaying.find(p => p.id === topId) || alivePlaying[0];
     onlineState.phase = 'DAY_TRIAL';
     broadcastOnlineState();
     broadcastOnlineSystemMsg(`⚖️ [${onlineState.trialCandidate.name}] 님의 최후 변론석입니다. 30초간 피고인만 발언할 수 있습니다.`);
@@ -746,7 +832,7 @@ io.on('connection', (socket) => {
 
   socket.on('online:verdict', ({ vote }) => {
     const voter = onlineState.players.find(p => p.socketId === socket.id);
-    if (!voter || !voter.isAlive || onlineState.phase !== 'DAY_VERDICT') return;
+    if (!voter || !voter.isAlive || voter.isModerator || onlineState.phase !== 'DAY_VERDICT') return;
     if (onlineState.verdictVotes.votedSockets.has(socket.id)) return;
     onlineState.verdictVotes.votedSockets.add(socket.id);
     if (vote === 'guilty') onlineState.verdictVotes.guilty++;
@@ -755,8 +841,8 @@ io.on('connection', (socket) => {
   });
 
   function resolveOnlineVerdict() {
-    const aliveCount = onlineState.players.filter(p => p.isAlive).length;
-    const isGuilty = onlineState.verdictVotes.guilty > onlineState.verdictVotes.innocent && onlineState.verdictVotes.guilty >= Math.floor(aliveCount / 2);
+    const alivePlaying = onlineState.players.filter(p => p.isAlive && !p.isModerator).length;
+    const isGuilty = onlineState.verdictVotes.guilty > onlineState.verdictVotes.innocent && onlineState.verdictVotes.guilty >= Math.floor(alivePlaying / 2);
 
     if (isGuilty && onlineState.trialCandidate) {
       onlineState.trialCandidate.isAlive = false;
@@ -790,7 +876,7 @@ io.on('connection', (socket) => {
 
   socket.on('online:night_action', ({ action, targetId }) => {
     const player = onlineState.players.find(p => p.socketId === socket.id);
-    if (!player || !player.isAlive || onlineState.phase !== 'NIGHT') return;
+    if (!player || !player.isAlive || player.isModerator || onlineState.phase !== 'NIGHT') return;
 
     if (action === 'mafia_kill' && ROLES[player.role]?.team === 'MAFIA') {
       onlineState.nightActions.mafiaVotes[targetId] = (onlineState.nightActions.mafiaVotes[targetId] || 0) + 1;
@@ -854,9 +940,23 @@ io.on('connection', (socket) => {
     } else {
       broadcastOnlineSystemMsg(`🏆 시민 진영의 승리! 모든 마피아를 소탕했습니다.`);
     }
-    const roleList = onlineState.players.map(p => `[${p.name}: ${ROLES[p.role]?.name || '시민'}]`).join(', ');
+    const roleList = onlineState.players.filter(p => !p.isModerator).map(p => `[${p.name}: ${ROLES[p.role]?.name || '시민'}]`).join(', ');
     broadcastOnlineSystemMsg(`📜 최종 직업 공개: ${roleList}`);
   }
+
+  socket.on('online:next_phase', () => {
+    const sender = onlineState.players.find(p => p.socketId === socket.id);
+    if (!sender || !sender.isHost) return;
+    clearInterval(onlineState.timerInterval);
+    broadcastOnlineSystemMsg(`⏩ 방장(사회자)이 다음 단계로 진행했습니다.`);
+    if (onlineState.phase === 'FIRST_NIGHT') onlineDayDiscuss();
+    else if (onlineState.phase === 'DAY_DISCUSS') onlineNominate();
+    else if (onlineState.phase === 'DAY_NOMINATE') resolveOnlineNominate();
+    else if (onlineState.phase === 'DAY_TRIAL') onlineVerdict();
+    else if (onlineState.phase === 'DAY_VERDICT') resolveOnlineVerdict();
+    else if (onlineState.phase === 'NIGHT') resolveOnlineNight();
+    else if (onlineState.phase === 'MORNING_REPORT') onlineDayDiscuss();
+  });
 
   socket.on('online:reset_game', () => {
     const sender = onlineState.players.find(p => p.socketId === socket.id);
@@ -864,16 +964,22 @@ io.on('connection', (socket) => {
     clearInterval(onlineState.timerInterval);
     onlineState.phase = 'LOBBY';
     onlineState.round = 1;
+    onlineState.isTimerPaused = false;
     cleanupDeadOnlineSockets();
+
     onlineState.players.forEach(p => {
-      p.role = null; p.isAlive = true; p.deathReason = null;
+      p.role = p.isModerator ? 'MODERATOR' : null;
+      p.isAlive = true;
+      p.deathReason = null;
     });
+
     onlineState.trialCandidate = null;
     onlineState.nominationVotes = {};
     onlineState.verdictVotes = { guilty: 0, innocent: 0, votedSockets: new Set() };
     onlineState.nightActions = { mafiaVotes: {}, doctorTarget: null, policeTarget: null };
     onlineState.lastNightReport = null;
     onlineState.winner = null;
+
     io.to('room_online').emit('online:player_reset');
     broadcastOnlineSystemMsg(`🔄 방장이 다음 판을 준비했습니다. 직업이 초기화되었습니다.`);
     broadcastOnlineState();
