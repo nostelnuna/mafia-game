@@ -103,7 +103,7 @@ function broadcastOfflineState() {
       name: p.name,
       isAlive: p.isAlive,
       deathReason: p.deathReason,
-      role: !p.isAlive || offlineState.phase === 'GAME_OVER' ? p.role : null
+      role: offlineState.phase === 'GAME_OVER' ? p.role : null
     })),
     trialCandidate: offlineState.trialCandidate,
     nominationVotes: offlineState.nominationVotes,
@@ -229,7 +229,7 @@ function broadcastOnlineState() {
       isHost: p.isHost,
       isModerator: p.isModerator,
       deathReason: p.deathReason,
-      role: !p.isAlive || onlineState.phase === 'GAME_OVER' || p.isModerator ? p.role : null
+      role: onlineState.phase === 'GAME_OVER' || p.isModerator ? p.role : null
     })),
     trialCandidate: onlineState.trialCandidate,
     nominationVotes: onlineState.nominationVotes,
@@ -311,6 +311,24 @@ io.on('connection', (socket) => {
   socket.on('offline:init', () => {
     socket.join('room_offline');
     broadcastOfflineState();
+  });
+
+    socket.on('offline:request_role', () => {
+    const p = offlineState.players.find(pl => pl.socketId === socket.id);
+    if (!p || !p.role) return;
+    const roleObj = ROLES[p.role] || ROLES.CITIZEN;
+    let teammates = [];
+    if (roleObj.team === 'MAFIA') {
+      teammates = offlineState.players.filter(tm => tm.id !== p.id && ROLES[tm.role]?.team === 'MAFIA').map(tm => ({ name: tm.name }));
+    }
+    socket.emit('offline:secret_role', {
+      role: p.role,
+      roleName: roleObj.name,
+      team: roleObj.team,
+      icon: roleObj.icon,
+      desc: roleObj.desc,
+      teammates: teammates
+    });
   });
 
   socket.on('offline:player_join', ({ name, token }) => {
@@ -399,6 +417,7 @@ io.on('connection', (socket) => {
   function offlineNominate() {
     offlineState.phase = 'DAY_NOMINATE';
     offlineState.nominationVotes = {};
+    offlineState.nominationVoters = {};
     broadcastOfflineState();
     startOfflineTimer(30, () => resolveOfflineNominate());
   }
@@ -406,7 +425,16 @@ io.on('connection', (socket) => {
   socket.on('offline:nominate', ({ targetId }) => {
     const voter = offlineState.players.find(p => p.socketId === socket.id);
     if (!voter || !voter.isAlive || offlineState.phase !== 'DAY_NOMINATE') return;
-    offlineState.nominationVotes[targetId] = (offlineState.nominationVotes[targetId] || 0) + 1;
+    
+    // 유권자 1인당 1표만 인정 (중복 투표 방지)
+    if (!offlineState.nominationVoters) offlineState.nominationVoters = {};
+    offlineState.nominationVoters[voter.id] = targetId;
+
+    const tally = {};
+    Object.values(offlineState.nominationVoters).forEach(tid => {
+      tally[tid] = (tally[tid] || 0) + 1;
+    });
+    offlineState.nominationVotes = tally;
     broadcastOfflineState();
   });
 
@@ -514,6 +542,11 @@ io.on('connection', (socket) => {
         offlineState.winner = victory;
         broadcastOfflineState();
       }, 5000);
+    } else {
+      // 아침 사건 발표 후 7초 뒤 자동으로 다음 날 낮 토론으로 진행!
+      startOfflineTimer(7, () => {
+        offlineDayDiscuss();
+      });
     }
   }
 
@@ -797,6 +830,7 @@ io.on('connection', (socket) => {
   function onlineNominate() {
     onlineState.phase = 'DAY_NOMINATE';
     onlineState.nominationVotes = {};
+    onlineState.nominationVoters = {};
     broadcastOnlineState();
     broadcastOnlineSystemMsg(`🗳️ 토론이 종료되었습니다. 처형할 의심 인물을 지목하세요! (30초)`);
     startOnlineTimer(30, () => resolveOnlineNominate());
@@ -805,7 +839,16 @@ io.on('connection', (socket) => {
   socket.on('online:nominate', ({ targetId }) => {
     const voter = onlineState.players.find(p => p.socketId === socket.id);
     if (!voter || !voter.isAlive || voter.isModerator || onlineState.phase !== 'DAY_NOMINATE') return;
-    onlineState.nominationVotes[targetId] = (onlineState.nominationVotes[targetId] || 0) + 1;
+    
+    // 유권자 1인당 1표만 인정
+    if (!onlineState.nominationVoters) onlineState.nominationVoters = {};
+    onlineState.nominationVoters[voter.id] = targetId;
+
+    const tally = {};
+    Object.values(onlineState.nominationVoters).forEach(tid => {
+      tally[tid] = (tally[tid] || 0) + 1;
+    });
+    onlineState.nominationVotes = tally;
     broadcastOnlineState();
   });
 
