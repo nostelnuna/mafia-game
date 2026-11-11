@@ -264,12 +264,18 @@
           </div>
         `;
       } else if (state.phase === 'DAY_NOMINATE') {
-        const aliveOthers = state.players.filter(p => p.isAlive && p.id !== myPlayer.id);
+        const isTieReVote = state.isReVote && state.tiedCandidateIds && state.tiedCandidateIds.length > 0;
+        const candidatePool = isTieReVote
+          ? state.players.filter(p => p.isAlive && state.tiedCandidateIds.includes(p.id))
+          : state.players.filter(p => p.isAlive && p.id !== myPlayer.id);
+
         panel.innerHTML = `
           <div>
-            <span class="text-xs font-bold text-rose-400 block mb-2">처형 후보 지목 투표</span>
+            <span class="text-xs font-bold ${isTieReVote ? 'text-amber-400' : 'text-rose-400'} block mb-2">
+              ${isTieReVote ? '⚠️ 동률 재투표 (동률 후보자 중 선택)' : '처형 후보 지목 투표'}
+            </span>
             <select id="nominateSelect" class="w-full bg-slate-950 text-white rounded-xl p-3 border border-slate-700 text-xs mb-3 focus:outline-none">
-              ${aliveOthers.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
+              ${candidatePool.map(p => `<option value="${p.id}">${p.name} ${p.id === myPlayer.id ? '(자신)' : ''}</option>`).join('')}
             </select>
             <button id="submitNominateBtn" class="w-full py-3 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow">
               지목 투표 제출
@@ -298,37 +304,30 @@
           </div>
         `;
       } else if (state.phase === 'DAY_VERDICT') {
-        if (state.trialCandidate && state.trialCandidate.id === myPlayer.id) {
-          panel.innerHTML = `
-            <div class="text-center py-4 text-rose-400 font-bold text-xs">
-              🙏 당신은 피고인입니다. 투표 결과를 기다리세요.
+        const isMeCandidate = state.trialCandidate && state.trialCandidate.id === myPlayer.id;
+        panel.innerHTML = `
+          <div class="flex flex-col gap-2.5">
+            <span class="text-xs font-bold text-center text-white">
+              [${state.trialCandidate?.name}] 님에 대한 판결 ${isMeCandidate ? '<span class="text-rose-400 font-bold">(피고인 본인 투표 가능)</span>' : ''}
+            </span>
+            <div class="grid grid-cols-2 gap-3">
+              <button id="voteG" class="py-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-2xl shadow">
+                유죄 (처형 찬성)
+              </button>
+              <button id="voteI" class="py-4 bg-sky-600 hover:bg-sky-500 text-white font-black text-xs rounded-2xl shadow">
+                무죄 (처형 반대)
+              </button>
             </div>
-          `;
-        } else {
-          panel.innerHTML = `
-            <div class="flex flex-col gap-2.5">
-              <span class="text-xs font-bold text-center text-white">
-                ${state.trialCandidate?.name} 님에 대한 판결
-              </span>
-              <div class="grid grid-cols-2 gap-3">
-                <button id="voteG" class="py-4 bg-rose-600 hover:bg-rose-500 text-white font-black text-xs rounded-2xl shadow">
-                  유죄 (처형 찬성)
-                </button>
-                <button id="voteI" class="py-4 bg-sky-600 hover:bg-sky-500 text-white font-black text-xs rounded-2xl shadow">
-                  무죄 (처형 반대)
-                </button>
-              </div>
-            </div>
-          `;
-          document.getElementById('voteG').onclick = () => {
-            socket.emit('offline:verdict', { vote: 'guilty' });
-            panel.innerHTML = `<div class="text-center py-4 text-rose-400 font-bold text-xs">유죄 투표 제출 완료</div>`;
-          };
-          document.getElementById('voteI').onclick = () => {
-            socket.emit('offline:verdict', { vote: 'innocent' });
-            panel.innerHTML = `<div class="text-center py-4 text-sky-400 font-bold text-xs">무죄 투표 제출 완료</div>`;
-          };
-        }
+          </div>
+        `;
+        document.getElementById('voteG').onclick = () => {
+          socket.emit('offline:verdict', { vote: 'guilty' });
+          panel.innerHTML = `<div class="text-center py-4 text-rose-400 font-bold text-xs">유죄 투표 제출 완료</div>`;
+        };
+        document.getElementById('voteI').onclick = () => {
+          socket.emit('offline:verdict', { vote: 'innocent' });
+          panel.innerHTML = `<div class="text-center py-4 text-sky-400 font-bold text-xs">무죄 투표 제출 완료</div>`;
+        };
       } else if (state.phase === 'NIGHT') {
         if (!mySecretRole) return;
 

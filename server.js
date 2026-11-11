@@ -72,6 +72,8 @@ const offlineState = {
   timerInterval: null,
   nominationVotes: {},
   trialCandidate: null,
+  tiedCandidateIds: null,
+  isReVote: false,
   verdictVotes: { guilty: 0, innocent: 0, votedSockets: new Set() },
   nightActions: { mafiaVotes: {}, doctorTarget: null, policeTarget: null },
   lastNightReport: null,
@@ -106,6 +108,8 @@ function broadcastOfflineState() {
       role: offlineState.phase === 'GAME_OVER' ? p.role : null
     })),
     trialCandidate: offlineState.trialCandidate,
+    tiedCandidateIds: offlineState.tiedCandidateIds,
+    isReVote: offlineState.isReVote,
     nominationVotes: offlineState.nominationVotes,
     verdictVotes: { guilty: offlineState.verdictVotes.guilty, innocent: offlineState.verdictVotes.innocent },
     lastNightReport: offlineState.lastNightReport,
@@ -169,6 +173,8 @@ const onlineState = {
   isTimerPaused: false,
   nominationVotes: {},
   trialCandidate: null,
+  tiedCandidateIds: null,
+  isReVote: false,
   verdictVotes: { guilty: 0, innocent: 0, votedSockets: new Set() },
   nightActions: { mafiaVotes: {}, doctorTarget: null, policeTarget: null },
   lastNightReport: null,
@@ -308,6 +314,11 @@ io.on('connection', (socket) => {
   // -------------------------------------------------------------
   // [1] 대면 오프라인 이벤트
   // -------------------------------------------------------------
+    // 호스트 전광판 전용 직업 실시간 토글 요청
+  socket.on('offline:request_host_roles', () => {
+    socket.emit('offline:host_roles', offlineState.players.map(p => ({ id: p.id, role: p.role })));
+  });
+
   socket.on('offline:init', () => {
     socket.join('room_offline');
     broadcastOfflineState();
@@ -410,6 +421,8 @@ io.on('connection', (socket) => {
 
   function offlineDayDiscuss() {
     offlineState.phase = 'DAY_DISCUSS';
+    offlineState.tiedCandidateIds = null;
+    offlineState.isReVote = false;
     broadcastOfflineState();
     startOfflineTimer(120, () => offlineNominate());
   }
@@ -439,12 +452,35 @@ io.on('connection', (socket) => {
   });
 
   function resolveOfflineNominate() {
-    let topId = null, maxV = -1;
-    Object.entries(offlineState.nominationVotes).forEach(([id, cnt]) => {
-      if (cnt > maxV) { maxV = cnt; topId = id; }
-    });
     const alive = offlineState.players.filter(p => p.isAlive);
-    offlineState.trialCandidate = alive.find(p => p.id === topId) || alive[0];
+    const candidatePool = offlineState.tiedCandidateIds
+      ? alive.filter(p => offlineState.tiedCandidateIds.includes(p.id))
+      : alive;
+
+    let maxV = -1;
+    candidatePool.forEach(p => {
+      const cnt = offlineState.nominationVotes[p.id] || 0;
+      if (cnt > maxV) maxV = cnt;
+    });
+
+    let topCandidates = candidatePool.filter(p => (offlineState.nominationVotes[p.id] || 0) === maxV);
+
+    // 동률 발생 검사: 최다 득표자가 2명 이상이고 득표수가 1표 이상인 경우
+    if (topCandidates.length > 1 && maxV > 0) {
+      offlineState.tiedCandidateIds = topCandidates.map(c => c.id);
+      offlineState.nominationVotes = {};
+      offlineState.nominationVoters = {};
+      offlineState.isReVote = true;
+      offlineState.phase = 'DAY_NOMINATE';
+      broadcastOfflineState();
+      startOfflineTimer(25, () => resolveOfflineNominate());
+      return;
+    }
+
+    // 단독 1위 확정 시 최후 변론으로 이동
+    offlineState.trialCandidate = topCandidates.length === 1 ? topCandidates[0] : candidatePool[0];
+    offlineState.tiedCandidateIds = null;
+    offlineState.isReVote = false;
     offlineState.phase = 'DAY_TRIAL';
     broadcastOfflineState();
     startOfflineTimer(30, () => offlineVerdict());
@@ -568,6 +604,8 @@ io.on('connection', (socket) => {
     cleanupDeadOfflineSockets();
     offlineState.players.forEach(p => { p.role = null; p.isAlive = true; p.deathReason = null; });
     offlineState.trialCandidate = null;
+    offlineState.tiedCandidateIds = null;
+    offlineState.isReVote = false;
     offlineState.nominationVotes = {};
     offlineState.verdictVotes = { guilty: 0, innocent: 0, votedSockets: new Set() };
     offlineState.nightActions = { mafiaVotes: {}, doctorTarget: null, policeTarget: null };
