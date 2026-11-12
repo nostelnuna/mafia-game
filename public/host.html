@@ -244,12 +244,66 @@
       } catch(e){}
     }
 
+    let lastSpokenPhaseKey = '';
+    let currentUtterance = null;
+
     function speak(text) {
-      if (!isTtsOn || !('speechSynthesis' in window)) return;
-      window.speechSynthesis.cancel();
-      const u = new SpeechSynthesisUtterance(text);
-      u.lang = 'ko-KR';
-      window.speechSynthesis.speak(u);
+      if (!isTtsOn || !('speechSynthesis' in window) || !text) return;
+      try {
+        window.speechSynthesis.cancel();
+        setTimeout(() => {
+          const u = new SpeechSynthesisUtterance(text);
+          u.lang = 'ko-KR';
+          u.rate = 1.0;
+          u.pitch = 1.0;
+          const voices = window.speechSynthesis.getVoices();
+          const koVoice = voices.find(v => v.lang && v.lang.toLowerCase().includes('ko'));
+          if (koVoice) u.voice = koVoice;
+          currentUtterance = u; // GC 방지
+          window.speechSynthesis.speak(u);
+        }, 60);
+      } catch(e) {}
+    }
+
+    function announcePhaseIfChanged(state) {
+      const phaseKey = `${state.phase}_${state.round}_${state.isReVote ? 're' : ''}_${state.trialCandidate?.id || ''}`;
+      if (phaseKey === lastSpokenPhaseKey) return;
+      lastSpokenPhaseKey = phaseKey;
+
+      if (state.phase === 'FIRST_NIGHT') {
+        playSound('gong');
+        speak('첫째 날 밤이 되었습니다. 모두 고개를 숙이지 말고, 스마트폰을 꾹 눌러 자신의 직업을 확인하세요.');
+      } else if (state.phase === 'DAY_DISCUSS') {
+        playSound('gong');
+        speak(`제 ${state.round}일 차 낮이 밝았습니다. 자유롭게 토론을 시작해 주세요.`);
+      } else if (state.phase === 'DAY_NOMINATE') {
+        playSound('gong');
+        if (state.isReVote) {
+          speak('투표 결과 동률이 발생했습니다. 동률 후보자들 중에서만 재투표를 진행해 주세요.');
+        } else {
+          speak('토론이 종료되었습니다. 처형할 의심 인물을 스마트폰에서 지목해 주세요.');
+        }
+      } else if (state.phase === 'DAY_TRIAL') {
+        playSound('gong');
+        speak(`${state.trialCandidate?.name || '후보자'} 님이 최후 변론 대상자로 지목되었습니다. 30초 동안 변론해 주세요.`);
+      } else if (state.phase === 'DAY_VERDICT') {
+        playSound('gong');
+        speak(`${state.trialCandidate?.name || '후보자'} 님에 대한 처형 찬반 투표를 시작합니다. 스마트폰에서 유죄 또는 무죄를 선택해 주세요.`);
+      } else if (state.phase === 'NIGHT') {
+        playSound('gong');
+        speak('밤이 되었습니다. 모두 침묵을 유지하며 스마트폰으로 각자의 능력을 사용해 주세요.');
+      } else if (state.phase === 'MORNING_REPORT') {
+        playSound('gong');
+        const rep = state.lastNightReport;
+        if (rep && rep.victim) {
+          speak(`아침이 밝았습니다. 지난밤, ${rep.victim.name} 님이 마피아의 습격으로 사망하셨습니다.`);
+        } else {
+          speak('아침이 밝았습니다. 의사의 치료로 지난밤 아무도 사망하지 않았습니다.');
+        }
+      } else if (state.phase === 'GAME_OVER') {
+        playSound('gong');
+        speak(state.winner === 'MAFIA' ? '게임이 종료되었습니다. 마피아 진영의 승리입니다.' : '게임이 종료되었습니다. 시민 진영의 승리입니다.');
+      }
     }
 
     socket.on('error_message', (msg) => {
@@ -269,6 +323,7 @@
     });
 
     function renderAll(state) {
+      announcePhaseIfChanged(state);
       const totalP = state.players.length;
       document.getElementById('roundBadge').textContent = state.phase === 'LOBBY' ? '대기 중' : `라운드 ${state.round}`;
       document.getElementById('playerStats').textContent = `실제 접속 ${totalP}명 (생존 ${state.players.filter(p => p.isAlive).length}명)`;
@@ -537,8 +592,14 @@
     };
 
     document.getElementById('ttsToggleBtn').onclick = () => {
+      initAudio();
       isTtsOn = !isTtsOn;
       document.getElementById('ttsToggleBtn').textContent = isTtsOn ? '🗣️ 음성 안내 ON' : '🤫 음성 안내 OFF';
+      if (isTtsOn) {
+        speak('음성 안내가 활성화되었습니다.');
+      } else if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
     };
   </script>
 </body>
