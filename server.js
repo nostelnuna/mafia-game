@@ -35,6 +35,7 @@ function getAutoRoleDeck(total) {
   total = Math.max(5, Math.min(35, total));
   let mafia = 1, police = 1, doctor = 1, detective = 0;
 
+  // 방안 A: 경찰/의사 수 축소 (5~19인 경찰1/의사1, 20~35인 경찰2/의사1)
   if (total <= 6) {
     mafia = 1; police = 1; doctor = 1; detective = 0;
   } else if (total <= 9) {
@@ -42,19 +43,19 @@ function getAutoRoleDeck(total) {
   } else if (total <= 12) {
     mafia = 3; police = 1; doctor = 1; detective = 1;
   } else if (total <= 15) {
-    mafia = 4; police = 2; doctor = 1; detective = 1;
+    mafia = 4; police = 1; doctor = 1; detective = 1;
   } else if (total <= 19) {
-    mafia = 4; police = 2; doctor = 2; detective = 1;
+    mafia = 4; police = 1; doctor = 1; detective = 1;
   } else if (total <= 23) {
-    mafia = 5; police = 2; doctor = 2; detective = 1;
+    mafia = 5; police = 2; doctor = 1; detective = 1;
   } else if (total <= 27) {
-    mafia = 6; police = 2; doctor = 2; detective = 1;
+    mafia = 6; police = 2; doctor = 1; detective = 1;
   } else if (total <= 31) {
-    mafia = 7; police = 2; doctor = 2; detective = 1;
+    mafia = 7; police = 2; doctor = 1; detective = 1;
   } else if (total <= 33) {
-    mafia = 8; police = 2; doctor = 2; detective = 1;
+    mafia = 8; police = 2; doctor = 1; detective = 1;
   } else {
-    mafia = 8; police = 3; doctor = 2; detective = 1;
+    mafia = 8; police = 2; doctor = 1; detective = 1;
   }
   const citizen = Math.max(1, total - (mafia + police + doctor + detective));
   return { mafia, police, doctor, detective, citizen };
@@ -76,6 +77,8 @@ const offlineState = {
   isReVote: false,
   verdictVotes: { guilty: 0, innocent: 0, votedSockets: new Set() },
   nightActions: { mafiaVotes: {}, doctorTarget: null, policeTarget: null },
+  lastDoctorTarget: null,
+  lastVerdictResult: null,
   lastNightReport: null,
   winner: null
 };
@@ -105,6 +108,7 @@ function broadcastOfflineState() {
       name: p.name,
       isAlive: p.isAlive,
       deathReason: p.deathReason,
+      executedTeam: p.executedTeam || null,
       role: offlineState.phase === 'GAME_OVER' ? p.role : null
     })),
     trialCandidate: offlineState.trialCandidate,
@@ -112,6 +116,8 @@ function broadcastOfflineState() {
     isReVote: offlineState.isReVote,
     nominationVotes: offlineState.nominationVotes,
     verdictVotes: { guilty: offlineState.verdictVotes.guilty, innocent: offlineState.verdictVotes.innocent },
+    lastDoctorTarget: offlineState.lastDoctorTarget,
+    lastVerdictResult: offlineState.lastVerdictResult,
     lastNightReport: offlineState.lastNightReport,
     winner: offlineState.winner
   });
@@ -177,6 +183,8 @@ const onlineState = {
   isReVote: false,
   verdictVotes: { guilty: 0, innocent: 0, votedSockets: new Set() },
   nightActions: { mafiaVotes: {}, doctorTarget: null, policeTarget: null },
+  lastDoctorTarget: null,
+  lastVerdictResult: null,
   lastNightReport: null,
   winner: null
 };
@@ -235,11 +243,14 @@ function broadcastOnlineState() {
       isHost: p.isHost,
       isModerator: p.isModerator,
       deathReason: p.deathReason,
+      executedTeam: p.executedTeam || null,
       role: onlineState.phase === 'GAME_OVER' || p.isModerator ? p.role : null
     })),
     trialCandidate: onlineState.trialCandidate,
     nominationVotes: onlineState.nominationVotes,
     verdictVotes: { guilty: onlineState.verdictVotes.guilty, innocent: onlineState.verdictVotes.innocent },
+    lastDoctorTarget: onlineState.lastDoctorTarget,
+    lastVerdictResult: onlineState.lastVerdictResult,
     lastNightReport: onlineState.lastNightReport,
     winner: onlineState.winner
   });
@@ -408,7 +419,7 @@ io.on('connection', (socket) => {
     offlineState.players.forEach((p, idx) => {
       p.role = deck[idx] || 'CITIZEN';
       p.isAlive = true;
-      p.deathReason = null;
+      p.deathReason = null; p.executedTeam = null;
     });
 
     sendOfflineSecretRoles();
@@ -509,8 +520,26 @@ io.on('connection', (socket) => {
 
     if (isGuilty && offlineState.trialCandidate) {
       offlineState.trialCandidate.isAlive = false;
-      offlineState.trialCandidate.deathReason = '투표로 처형됨';
+      const teamLabel = ROLES[offlineState.trialCandidate.role]?.team === 'MAFIA' ? '마피아 진영' : '시민 진영';
+      offlineState.trialCandidate.executedTeam = teamLabel;
+      offlineState.trialCandidate.deathReason = `처형 (${teamLabel})`;
+      offlineState.lastVerdictResult = {
+        isGuilty: true,
+        name: offlineState.trialCandidate.name,
+        team: teamLabel,
+        guilty: offlineState.verdictVotes.guilty,
+        innocent: offlineState.verdictVotes.innocent
+      };
+    } else if (offlineState.trialCandidate) {
+      offlineState.lastVerdictResult = {
+        isGuilty: false,
+        name: offlineState.trialCandidate.name,
+        team: null,
+        guilty: offlineState.verdictVotes.guilty,
+        innocent: offlineState.verdictVotes.innocent
+      };
     }
+    offlineState.phase = 'VERDICT_RESULT';
     broadcastOfflineState();
 
     setTimeout(() => {
@@ -541,6 +570,10 @@ io.on('connection', (socket) => {
       const mafiaSockets = offlineState.players.filter(p => ROLES[p.role]?.team === 'MAFIA' && p.isAlive).map(p => p.socketId);
       mafiaSockets.forEach(sId => io.to(sId).emit('offline:mafia_sync', offlineState.nightActions.mafiaVotes));
     } else if (action === 'doctor_heal' && player.role === 'DOCTOR') {
+      if (offlineState.lastDoctorTarget && offlineState.lastDoctorTarget === targetId) {
+        socket.emit('error_message', '의사는 연속으로 같은 사람을 치료할 수 없습니다.');
+        return;
+      }
       offlineState.nightActions.doctorTarget = targetId;
       socket.emit('action_confirmed', '치료 대상이 설정되었습니다.');
     } else if (action === 'police_check' && player.role === 'POLICE') {
@@ -556,6 +589,7 @@ io.on('connection', (socket) => {
       if (cnt > maxV) { maxV = cnt; mafiaTargetId = id; }
     });
 
+    offlineState.lastDoctorTarget = offlineState.nightActions.doctorTarget || null;
     const doctorSaved = offlineState.nightActions.doctorTarget === mafiaTargetId;
     let victim = null;
     if (mafiaTargetId && !doctorSaved) {
@@ -602,13 +636,15 @@ io.on('connection', (socket) => {
     offlineState.phase = 'LOBBY';
     offlineState.round = 1;
     cleanupDeadOfflineSockets();
-    offlineState.players.forEach(p => { p.role = null; p.isAlive = true; p.deathReason = null; });
+    offlineState.players.forEach(p => { p.role = null; p.isAlive = true; p.deathReason = null; p.executedTeam = null; });
     offlineState.trialCandidate = null;
     offlineState.tiedCandidateIds = null;
     offlineState.isReVote = false;
     offlineState.nominationVotes = {};
     offlineState.verdictVotes = { guilty: 0, innocent: 0, votedSockets: new Set() };
     offlineState.nightActions = { mafiaVotes: {}, doctorTarget: null, policeTarget: null };
+    offlineState.lastDoctorTarget = null;
+    offlineState.lastVerdictResult = null;
     offlineState.lastNightReport = null;
     offlineState.winner = null;
     io.to('room_offline').emit('offline:player_reset');
@@ -844,7 +880,7 @@ io.on('connection', (socket) => {
     playingPlayers.forEach((p, idx) => {
       p.role = deck[idx] || 'CITIZEN';
       p.isAlive = true;
-      p.deathReason = null;
+      p.deathReason = null; p.executedTeam = null;
     });
 
     sendOnlineSecretRoles();
@@ -927,8 +963,10 @@ io.on('connection', (socket) => {
 
     if (isGuilty && onlineState.trialCandidate) {
       onlineState.trialCandidate.isAlive = false;
-      onlineState.trialCandidate.deathReason = '투표로 처형됨';
-      broadcastOnlineSystemMsg(`☠️ 투표 결과, 유죄 ${onlineState.verdictVotes.guilty}표로 [${onlineState.trialCandidate.name}] 님이 처형되었습니다.`);
+      const teamLabel = ROLES[onlineState.trialCandidate.role]?.team === 'MAFIA' ? '마피아 진영' : '시민 진영';
+      onlineState.trialCandidate.executedTeam = teamLabel;
+      onlineState.trialCandidate.deathReason = `처형 (${teamLabel})`;
+      broadcastOnlineSystemMsg(`☠️ 투표 결과, 유죄 ${onlineState.verdictVotes.guilty}표로 [${onlineState.trialCandidate.name}] 님이 처형되었습니다. ([${onlineState.trialCandidate.name}] 님은 [${teamLabel}]이었습니다!)`);
     } else {
       broadcastOnlineSystemMsg(`🕊️ 과반수 유죄에 미달하여 [${onlineState.trialCandidate.name}] 님이 무죄 방면되었습니다.`);
     }
@@ -966,6 +1004,10 @@ io.on('connection', (socket) => {
       const mafiaSockets = onlineState.players.filter(p => ROLES[p.role]?.team === 'MAFIA' && p.isAlive).map(p => p.socketId);
       mafiaSockets.forEach(sId => io.to(sId).emit('online:mafia_sync', onlineState.nightActions.mafiaVotes));
     } else if (action === 'doctor_heal' && player.role === 'DOCTOR') {
+      if (onlineState.lastDoctorTarget && onlineState.lastDoctorTarget === targetId) {
+        socket.emit('error_message', '의사는 연속으로 같은 사람을 치료할 수 없습니다.');
+        return;
+      }
       onlineState.nightActions.doctorTarget = targetId;
       socket.emit('action_confirmed', '치료 대상이 설정되었습니다.');
     } else if (action === 'police_check' && player.role === 'POLICE') {
@@ -981,6 +1023,7 @@ io.on('connection', (socket) => {
       if (cnt > maxV) { maxV = cnt; mafiaTargetId = id; }
     });
 
+    onlineState.lastDoctorTarget = onlineState.nightActions.doctorTarget || null;
     const doctorSaved = onlineState.nightActions.doctorTarget === mafiaTargetId;
     let victim = null;
     if (mafiaTargetId && !doctorSaved) {
@@ -1051,13 +1094,15 @@ io.on('connection', (socket) => {
     onlineState.players.forEach(p => {
       p.role = p.isModerator ? 'MODERATOR' : null;
       p.isAlive = true;
-      p.deathReason = null;
+      p.deathReason = null; p.executedTeam = null;
     });
 
     onlineState.trialCandidate = null;
     onlineState.nominationVotes = {};
     onlineState.verdictVotes = { guilty: 0, innocent: 0, votedSockets: new Set() };
     onlineState.nightActions = { mafiaVotes: {}, doctorTarget: null, policeTarget: null };
+    onlineState.lastDoctorTarget = null;
+    onlineState.lastVerdictResult = null;
     onlineState.lastNightReport = null;
     onlineState.winner = null;
 
@@ -1078,6 +1123,8 @@ io.on('connection', (socket) => {
     onlineState.nominationVotes = {};
     onlineState.verdictVotes = { guilty: 0, innocent: 0, votedSockets: new Set() };
     onlineState.nightActions = { mafiaVotes: {}, doctorTarget: null, policeTarget: null };
+    onlineState.lastDoctorTarget = null;
+    onlineState.lastVerdictResult = null;
     onlineState.lastNightReport = null;
     onlineState.winner = null;
     onlineState.roleDeckConfig = getAutoRoleDeck(5);

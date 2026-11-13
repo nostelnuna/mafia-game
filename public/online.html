@@ -286,6 +286,7 @@
     let myPlayer = null;
     let mySecretRole = null;
     let currentServerState = null;
+    let lastRenderedPhaseKey = '';
     let currentChannel = 'public'; // public, mafia, dead
     let isSoundOn = true;
     let isHostAuthed = false;
@@ -582,6 +583,13 @@
         document.getElementById('tabDeadBtn').classList.remove('hidden');
       }
 
+      const phaseKey = `${state.phase}_${state.round}_${isAlive}_${isMod}_${mySecretRole ? mySecretRole.role : 'none'}`;
+      const shouldRenderAction = phaseKey !== lastRenderedPhaseKey;
+      if (shouldRenderAction) {
+        lastRenderedPhaseKey = phaseKey;
+      }
+
+      if (shouldRenderAction) {
       if (state.phase === 'LOBBY') {
         badge.textContent = '대기방';
         badge.className = 'text-[10px] font-black px-2 py-0.5 rounded-full bg-slate-800 text-slate-300 border border-slate-700';
@@ -619,20 +627,24 @@
           const others = state.players.filter(p => p.isAlive && !p.isModerator && p.id !== myPlayer?.id);
           actionCard.innerHTML = `
             <div>
-              <span class="text-xs font-bold text-rose-400 block mb-1.5">처형할 의심 인물 지목:</span>
-              <select id="nominateSelect" class="w-full bg-slate-950 text-white rounded-xl p-2.5 border border-slate-700 text-xs mb-2">
-                ${others.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
-              </select>
-              <button id="nominateBtn" class="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl shadow">
-                지목 투표 제출
-              </button>
+              <span class="text-xs font-bold text-rose-400 block mb-1.5">처형 후보 터치 (1명 선택):</span>
+              <div class="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                ${others.map(p => `
+                  <button data-tid="${p.id}" data-tname="${p.name}" class="onl-nom-btn py-2 px-2 bg-slate-950 hover:bg-rose-950/60 border border-slate-700 hover:border-rose-500 rounded-xl text-xs font-bold text-white truncate transition">
+                    ${p.name}
+                  </button>
+                `).join('')}
+              </div>
             </div>
           `;
-          document.getElementById('nominateBtn').onclick = () => {
-            const targetId = document.getElementById('nominateSelect').value;
-            socket.emit('online:nominate', { targetId });
-            actionCard.innerHTML = `<div class="text-center py-4 text-emerald-400 font-bold text-xs">✅ 지목 투표가 완료되었습니다.</div>`;
-          };
+          actionCard.querySelectorAll('.onl-nom-btn').forEach(btn => {
+            btn.onclick = () => {
+              const targetId = btn.getAttribute('data-tid');
+              const targetName = btn.getAttribute('data-tname');
+              socket.emit('online:nominate', { targetId });
+              actionCard.innerHTML = `<div class="text-center py-4 text-emerald-400 font-bold text-xs">✅ [${targetName}] 님에게 1표 투표 완료!</div>`;
+            };
+          });
         } else {
           actionCard.innerHTML = `<div class="text-center py-4 text-slate-400 text-xs">참가자들의 지목 투표를 집계 중입니다...</div>`;
         }
@@ -719,22 +731,30 @@
             };
           } else if (mySecretRole.role === 'DOCTOR') {
             const targets = state.players.filter(p => p.isAlive && !p.isModerator);
+            const lastDoc = state.lastDoctorTarget;
             actionCard.innerHTML = `
               <div class="flex flex-col gap-2">
-                <span class="text-xs font-black text-emerald-400">💉 치료 대상 선택 (의사 전용)</span>
-                <select id="doctorSelect" class="w-full bg-slate-950 text-xs text-white rounded-xl p-2.5 border border-slate-700">
-                  ${targets.map(p => `<option value="${p.id}">${p.name}</option>`).join('')}
-                </select>
-                <button id="doctorSubmit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs rounded-xl shadow">
-                  치료 지정
-                </button>
+                <span class="text-xs font-black text-emerald-400">💉 치료 대상 터치 (연속 동일인 불가)</span>
+                <div class="grid grid-cols-2 gap-1.5 max-h-48 overflow-y-auto pr-1">
+                  ${targets.map(p => {
+                    const isBlocked = lastDoc && lastDoc === p.id;
+                    return `
+                      <button data-tid="${p.id}" data-tname="${p.name}" ${isBlocked ? 'disabled' : ''} class="onl-doc-btn py-2 px-2 rounded-xl text-xs font-bold truncate border transition ${isBlocked ? 'bg-slate-950 border-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-950 hover:bg-emerald-950/60 border-slate-700 hover:border-emerald-500 text-white'}">
+                        ${p.name} ${isBlocked ? '(연속불가)' : ''}
+                      </button>
+                    `;
+                  }).join('')}
+                </div>
               </div>
             `;
-            document.getElementById('doctorSubmit').onclick = () => {
-              const targetId = document.getElementById('doctorSelect').value;
-              socket.emit('online:night_action', { action: 'doctor_heal', targetId });
-              actionCard.innerHTML = `<div class="text-center py-4 text-emerald-400 font-bold text-xs">선택한 플레이어를 보호합니다.</div>`;
-            };
+            actionCard.querySelectorAll('.onl-doc-btn:not([disabled])').forEach(btn => {
+              btn.onclick = () => {
+                const targetId = btn.getAttribute('data-tid');
+                const targetName = btn.getAttribute('data-tname');
+                socket.emit('online:night_action', { action: 'doctor_heal', targetId });
+                actionCard.innerHTML = `<div class="text-center py-4 text-emerald-400 font-bold text-xs">💉 [${targetName}] 님을 보호합니다.</div>`;
+              };
+            });
           } else {
             actionCard.innerHTML = `
               <div class="text-center py-4">
@@ -766,6 +786,8 @@
         `;
       }
 
+      } // end if (shouldRenderAction)
+
       // 모달 참가자 목록
       const modalList = document.getElementById('modalPlayerList');
       modalList.innerHTML = state.players.map(p => `
@@ -793,6 +815,7 @@
     });
 
     socket.on('online:player_reset', () => {
+      lastRenderedPhaseKey = '';
       mySecretRole = null;
       document.getElementById('roleIcon').textContent = '🧑‍🌾';
       document.getElementById('roleName').textContent = '직업 대기 중';

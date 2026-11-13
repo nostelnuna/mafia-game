@@ -289,6 +289,34 @@
       } else if (state.phase === 'DAY_VERDICT') {
         playSound('gong');
         speak(`${state.trialCandidate?.name || '후보자'} 님에 대한 처형 찬반 투표를 시작합니다. 스마트폰에서 유죄 또는 무죄를 선택해 주세요.`);
+      } else if (state.phase === 'VERDICT_RESULT') {
+        playSound('gong');
+        const vr = state.lastVerdictResult;
+        if (vr && vr.isGuilty) {
+          speak(`판결 결과, ${vr.name} 님이 처형되었습니다. ${vr.name} 님은 ${vr.team}이었습니다.`);
+        } else if (vr) {
+          speak(`판결 결과, 과반수 유죄에 달하지 못하여 ${vr.name} 님은 무죄로 방면되었습니다.`);
+        }
+      } else if (state.phase === 'VERDICT_RESULT') {
+        const vr = state.lastVerdictResult;
+        pTitle.textContent = vr?.isGuilty ? `처형 확정: ${vr.name}` : `무죄 방면: ${vr?.name || ''}`;
+        pSub.textContent = vr?.isGuilty ? '낮 재판 투표 결과에 따라 처형되었으며 소속 진영이 공개됩니다.' : '과반수 유죄에 달하지 못해 생존했습니다.';
+        stage.innerHTML = vr?.isGuilty ? `
+          <div class="p-6 rounded-2xl border text-center w-full ${vr.team === '마피아 진영' ? 'bg-rose-950/40 border-rose-700' : 'bg-sky-950/40 border-sky-700'}">
+            <span class="text-5xl block mb-2">${vr.team === '마피아 진영' ? '🩸' : '🕊️'}</span>
+            <h3 class="text-2xl font-black text-white mb-2">${vr.name} 님이 처형되었습니다</h3>
+            <p class="text-lg font-black ${vr.team === '마피아 진영' ? 'text-rose-400' : 'text-sky-400'}">
+              소속 진영: [${vr.team}]
+            </p>
+            <p class="text-xs text-slate-400 mt-2">유죄 ${vr.guilty}표 / 무죄 ${vr.innocent}표 — 잠시 후 밤이 찾아옵니다...</p>
+          </div>
+        ` : `
+          <div class="p-6 rounded-2xl border text-center w-full bg-slate-950 border-slate-800">
+            <span class="text-5xl block mb-2">🕊️</span>
+            <h3 class="text-2xl font-black text-white mb-1">${vr?.name || ''} 님이 무죄로 풀려났습니다</h3>
+            <p class="text-xs text-slate-400 mt-2">유죄 ${vr?.guilty || 0}표 / 무죄 ${vr?.innocent || 0}표 — 잠시 후 밤이 찾아옵니다...</p>
+          </div>
+        `;
       } else if (state.phase === 'NIGHT') {
         playSound('gong');
         speak('밤이 되었습니다. 모두 침묵을 유지하며 스마트폰으로 각자의 능력을 사용해 주세요.');
@@ -471,6 +499,26 @@
             </div>
           </div>
         `;
+      } else if (state.phase === 'VERDICT_RESULT') {
+        const vr = state.lastVerdictResult;
+        pTitle.textContent = vr?.isGuilty ? `처형 확정: ${vr.name}` : `무죄 방면: ${vr?.name || ''}`;
+        pSub.textContent = vr?.isGuilty ? '낮 재판 투표 결과에 따라 처형되었으며 소속 진영이 공개됩니다.' : '과반수 유죄에 달하지 못해 생존했습니다.';
+        stage.innerHTML = vr?.isGuilty ? `
+          <div class="p-6 rounded-2xl border text-center w-full ${vr.team === '마피아 진영' ? 'bg-rose-950/40 border-rose-700' : 'bg-sky-950/40 border-sky-700'}">
+            <span class="text-5xl block mb-2">${vr.team === '마피아 진영' ? '🩸' : '🕊️'}</span>
+            <h3 class="text-2xl font-black text-white mb-2">${vr.name} 님이 처형되었습니다</h3>
+            <p class="text-lg font-black ${vr.team === '마피아 진영' ? 'text-rose-400' : 'text-sky-400'}">
+              소속 진영: [${vr.team}]
+            </p>
+            <p class="text-xs text-slate-400 mt-2">유죄 ${vr.guilty}표 / 무죄 ${vr.innocent}표 — 잠시 후 밤이 찾아옵니다...</p>
+          </div>
+        ` : `
+          <div class="p-6 rounded-2xl border text-center w-full bg-slate-950 border-slate-800">
+            <span class="text-5xl block mb-2">🕊️</span>
+            <h3 class="text-2xl font-black text-white mb-1">${vr?.name || ''} 님이 무죄로 풀려났습니다</h3>
+            <p class="text-xs text-slate-400 mt-2">유죄 ${vr?.guilty || 0}표 / 무죄 ${vr?.innocent || 0}표 — 잠시 후 밤이 찾아옵니다...</p>
+          </div>
+        `;
       } else if (state.phase === 'NIGHT') {
         pTitle.textContent = `침묵의 밤 (40초 타임어택)`;
         pSub.textContent = '참가자들은 스마트폰을 보며 침묵을 유지하세요. 마피아는 습격, 경찰은 조사, 의사는 치료를 진행합니다.';
@@ -537,8 +585,8 @@
             </div>
           </div>
           <div class="text-xs font-bold text-white truncate" title="${p.name}">${p.name}</div>
-          <div class="text-[10px] text-slate-500 truncate mt-0.5">
-            ${(reveal && hostRolesMap[p.id]) || (state.phase === 'GAME_OVER' && p.role) ? (hostRolesMap[p.id] || p.role) : (p.isAlive ? '생존 (비공개)' : '사망 (비공개)')}
+          <div class="text-[10px] ${p.executedTeam === '마피아 진영' ? 'text-rose-400 font-bold' : (p.executedTeam === '시민 진영' ? 'text-sky-400 font-bold' : 'text-slate-500')} truncate mt-0.5">
+            ${(reveal && hostRolesMap[p.id]) || (state.phase === 'GAME_OVER' && p.role) ? (hostRolesMap[p.id] || p.role) : (p.isAlive ? '생존 (비공개)' : (p.executedTeam ? `처형 (${p.executedTeam})` : '사망 (비공개)'))}
           </div>
         </div>
       `).join('');
